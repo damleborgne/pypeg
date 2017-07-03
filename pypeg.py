@@ -14,7 +14,137 @@ from astropy import cosmology
 time : Myr
 flux density : erg/s/A or erg/s/cm2/A
 wavelength : angstrom
+
+Routines : 
+- def igm_transmission(wavelength, redshift)
+- ldist_z(z) : in cm
+- cosmic_z(age, zfor) : input in Myr
+- cosmic_sfh() :   return z, log_CSFR, log_CSFR_err # log(Msun/yr/Mpc3)
+- Class SSP
+  - self.imf_name = ''
+    self.imf_file = ''
+    self.imf_number = 4
+    self.m_min= 0.1
+    self.m_max = 120.
+    self.SNII_model = 'B'
+    self.stellar_winds = 'y'
+    self.stellib = 'stellibLCBcor.fits'
+    self.stellib_number = 1
+    self.ssp_prefix = 'Salp_B_sw_LCB'
+  - write_input_file(file)
+  - build()
+  - run_ssp(file)
+- Class Scenario
+  - self.header = []
+    self.output_file = 'test.fits'
+    self.SSPs_file = 'Salp_B_sw_LCB_SSPs.dat'
+    self.stellib = 'stellibLCBcor.fits'
+    self.type_sf_dict = {'Instantaneous':0, 'Constant':1, 'Exponential':2, 'Schmidt':3}
+    self.cb_fraction = 0.05
+    self.init_metal=0.
+    self.infall= True
+    self.tau_infall= 1e4 # Myr
+    self.infall_metal= 0.
+    self.type_sf=self.type_sf_dict['Schmidt']
+    self.p1=1.
+    self.p2=1e4 #Myr
+    self.sfr_file= ''
+    self.tau_winds= 20001. # Myr
+    self.consistent_metal= True
+    self.stellar_metal= 0.
+    self.substellar_mass= 0.
+    self.nebular= True
+    self.extinction= 0
+    self.inclination= 0.
+- write_scenarios(file, scenarios) : make .scn file from array of Scenarios
+- run_scenarios_file(file)
+- compute_scenarios(scenarios) : directly run array of scenarios
+
+- Class Spectrum
+  - w, nw, f
+  - w,f = fromfile(file) : read from ascii 2-column file
+  - normalize(w0,f0) : so that f(w0) = f0
+  - smooth(wscale, w0 = median(w)) : use dlb.stats.smooth
+
+- Class Sedevol
+  - self.time = time
+    self.w    = w
+    self.fevol = np.zeros((len(time),len(w)))
+    self.dirac = dirac
+    self.sigma = 10. # width of emission lines
+  - __add__ : so that s1+s2 = addition of evolving spectra, 
+              even with different w sampling. Times must be identical, though.
+              Uses self.sigma to smooth Dirac lines.
+  - smooth(wscale, w0)  : smooth evolving spectrum (uses Spectrum.smooth)
+  - absmag(myfilter, zfor=10., calibtype='AB')
+  - sed_in_ab(sfor=10, igm = True)
+  - obsmag(myfilter, zfor = 10, calibtype = 'AB', igm = True)
+  - sed_at_age(age) : interpolate, returns flux array
+
+- Class Properties
+  - self.nages
+    self.time=np.zeros(self.nages)
+    self.mgal=np.zeros(self.nages)
+    self.mstars=np.zeros(self.nages)
+    self.mWD=np.zeros(self.nages)
+    self.mNSBH=np.zeros(self.nages)
+    self.msubstell=np.zeros(self.nages)
+    self.mgas=np.zeros(self.nages)
+    self.Zism=np.zeros(self.nages)
+    self.Zstars_mass=np.zeros(self.nages)
+    self.Zstars_lumbol=np.zeros(self.nages)
+    self.Lbol=np.zeros(self.nages)
+    self.tauv=np.zeros(self.nages)
+    self.Ldust_Lbol=np.zeros(self.nages)
+    self.SFR=np.zeros(self.nages)
+    self.nLym=np.zeros(self.nages)
+    self.nSNII=np.zeros(self.nages)
+    self.nSNIa=np.zeros(self.nages)
+    self.age_stars_mass=np.zeros(self.nages)
+    self.age_stars_Lbol=np.zeros(self.nages) 
+
+- Class Model
+  - self.scen = Scenario()
+    self.props = Properties()
+    self.norm = 1.
+  - upscale(norm) : recompute parameters with normalisation !=1.
+  - read_from_p2file(file, sigma=None): also do normalisation accroding to self.norm
+  - read_from_fitsfile(file, sigma=None): idem
+  - plotevol_sed_rf(ages = [10,100,1000])
+
+- Class Filter(filename, fildir, transtype)
+  - self.filename = 'unknown'
+    self.fildir   = ''
+    self.nw       = 10000
+    self.transorig = Spectrum(nw = self.nw) # photon or energy transmission
+    if transtype is None:
+      self.transtype = -1 # O = energy ; 1 = photon
+    else:
+      self.transtype = transtype # force transmission type
+    self.trans = Spectrum(nw = self.nw) # energy transmission
+    self.area      = 0. # units = A
+    self.areanu    = 0. # units = Hz
+    self.wavemean  = 0. # units = A
+    self.waveeff   = 0. # units = A
+    self.fluxVega  = 0. # units = erg/s/cm^2/Angstrom
+    self.fluxSun   = 0. # 
+    self.ABVega    = 0. # units = AB mag
+    self.ABSun     = 0. # units = AB mag
+    self.error     = 0
+    self.fildir = fildir
+  - multintegrate(spectrum, weight)
+  - calibrate() : same as calib.f (computes ABVega, fluxVega, etc.)
+  - read_pegase_filter(pref, filename) :  looks in $ZPEG_ROOT if necessary, and calibrate
+  - mag_to_flambda(m, calibtype='AB')
+  - mag(spectrum, calibtype = 'AB') : from erg/s/cm2/A to AB
+  - show() : plot f(w)
+  - crop(wmin,wmax) : crop filter transmission
+  
+
+
 """
+
+
 
 print 'init cosmo...'
 mycosmo = cosmology.Planck13
@@ -611,17 +741,13 @@ class Sedevol(object):
       
     return sp_ab, z
 
-  def obsmags(self, myfilter, zfor = None, calibtype = 'AB', igm = True):
+  def obsmags(self, myfilter, zfor = 10., calibtype = 'AB', igm = True):
     #from astropy import units as units
     # computes observed magnitudes in a filter as a function of time
     #from astropy import cosmology
     #import time
 
     igm_trans = np.ones_like(self.w)
-
-
-    if zfor is None:
-      zfor = 10.
 
     z = cosmic_z(self.time, zfor)
     #print self.time, z
@@ -846,9 +972,9 @@ class Model(object):
     self.props.age_stars_mass= hdulist[2].data['agestars']
     self.props.age_stars_Lbol= hdulist[2].data['agebol']
 
-    Lsol=3.826e33 # erg/s
-    self.seds_cont.fevol = Lsol*hdulist[0].data # ntimes  x nlambda array
-    self.seds_lines.fevol = Lsol*hdulist[1].data.field(1).transpose() # ntimes  x nlines array
+    Lsun=3.826e33 # erg/s BECAUSE in FITS files, spectra are normalized to Lsun
+    self.seds_cont.fevol = Lsun*hdulist[0].data # ntimes  x nlambda array
+    self.seds_lines.fevol = Lsun*hdulist[1].data.field(1).transpose() # ntimes  x nlines array
 
     # add lines to continuum
     if sigma is not None:
@@ -857,18 +983,16 @@ class Model(object):
     # magic addition involving interpolation, cf __add__ in Sedsevol classs
     self.seds = self.seds_cont + self.seds_lines
     self.seds.time           = self.props.time
+                
+    if self.norm != 1. :
+      self.upscale(self.norm)
 
     hdulist.close()
 
 
-  def plotevol_sed_rf(self, ages=np.array([10,100,1000,10000]), **kwargs):
+  def plotevol_sed_rf(self, ages=[10,100,1000,10000], **kwargs):
     """ Plot the evolution of the SED in the RestFrame"""
     import matplotlib.pyplot as plt
-        #plt.subplot(1,1,1)
-        #for i in ages:         
-        #   iok=int(np.where(i == self.props.time)[0])
-        #   plt.loglog( self.seds.lam, self.seds.continuum[iok,:])          
-        #plt.show()
         
     #plt.ion()
     #fig=plt.figure()
@@ -876,13 +1000,11 @@ class Model(object):
     plt.xscale("log",nonposx='clip')
     plt.yscale("log",nonposy='clip')
     plt.xlim([700.,20000.])
-    #plt.ylim([1e25,1e31])
+
     for i in ages:
-      #iok = (np.abs(self.props.time - i)).argmin()
-      #ax.plot( self.seds.w, self.seds.fevol[iok,:],linewidth=2.)
       plt.plot( self.seds.w, self.seds.sed_at_age(i),linewidth=2.)
+
     leg=plt.legend([str(a)+' Myr' for a in ages], loc = 0, **kwargs)
-        
     for l in leg.get_lines():
       l.set_linewidth(2)  # the legend line width
 
@@ -908,9 +1030,9 @@ class Filter(object):
     self.nw       = 10000
     self.transorig = Spectrum(nw = self.nw) # photon or energy transmission
     if transtype is None:
-      self.transtype = -1 # O = energy ; 1 = photon
+      self.transtype = -1 # O = energy ; 1 = photon. Defined from first value in file. 
     else:
-      self.transtype = transtype # force transmission type
+      self.transtype = transtype # force transmission type, 0 or 1.
     self.trans = Spectrum(nw = self.nw) # energy transmission
     self.area      = 0. # units = A
     self.areanu    = 0. # units = Hz
