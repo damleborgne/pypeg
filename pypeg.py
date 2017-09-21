@@ -79,7 +79,7 @@ Routines :
   - absmag(myfilter, zfor=10., calibtype='AB')
   - sed_in_ab(sfor=10, igm = True)
   - obsmag(myfilter, zfor = 10, calibtype = 'AB', igm = True)
-  - sed_at_age(age) : interpolate, returns flux array
+  - sed_at_age(age) : interpolate, returns Spectrum with s.w, s.f being the spectrum
 
 - Class Properties
   - self.nages
@@ -393,7 +393,7 @@ class Scenario(object):
       self.output_file = 'test.fits'
       self.SSPs_file = 'Salp_B_sw_LCB_SSPs.dat'
       self.stellib = 'stellibLCBcor.fits'
-      self.type_sf_dict = {'Instantaneous':0, 'Constant':1, 'Exponential':2, 'Schmidt':3}
+      self.type_sf_dict = {'time_SFR_Z':-2, 'time_SFR':-1, 'Instantaneous':0, 'Constant':1, 'Exponential':2, 'Schmidt':3}
       self.cb_fraction = 0.05
       self.init_metal=0.
       self.infall= True
@@ -491,6 +491,22 @@ def run_scenarios_file(file, verbose = True):
   else:
     subprocess.call(["spectra_HR", file], stdout = open("/dev/null", "w"))
 
+def delete_files(scenarios, overwrite_without_prompt = True):
+  import os
+  # remove files first if needed ("overwrite")
+  for f in [s.output_file for s in scenarios]:    
+    if os.path.exists(f):
+      if overwrite_without_prompt:
+        os.remove(f)
+      else:
+        yy = raw_input('Warning : the file '+f+' already exists ! delete it ? (y/n)')
+        if (yy == 'y') or (yy == ''):
+          os.remove(f)
+        else:
+          print 'Try again with another filename, then.....'
+          return
+
+
 def compute_scenarios(scenarios, tmpfile = None, overwrite = False, verbose = True, skip_existing = False):
   import os
 
@@ -508,19 +524,7 @@ def compute_scenarios(scenarios, tmpfile = None, overwrite = False, verbose = Tr
 
   if len(scenarios)>0:
     write_scenarios(tmpfile, scenarios)
-
-    # remove files first if needed ("overwrite")
-    for f in [s.output_file for s in scenarios]:    
-      if os.path.exists(f):
-        if overwrite:
-          os.remove(f)
-        else:
-          yy = raw_input('Warning : the file '+f+' already exists ! delete it ? (y/n)')
-          if (yy == 'y') or (yy == ''):
-            os.remove(f)
-          else:
-            print 'Try again with another filename, then.....'
-            return
+    delete_files(scenarios, overwrite_without_prompt = overwrite)
 
     print 'computing scenarios...'
     run_scenarios_file(tmpfile, verbose = verbose)
@@ -604,26 +608,32 @@ class Spectrum(object):
 
     self.f = smoothed  
 
-
+  def dimmed_to_absolute(self):
+    dimming = 4*np.pi*(10.*u.pc.to(u.cm))**2 # surface of a 10pc radius sphere in cm^2 
+    return Spectrum(w=self.w, f = self.f / dimming)
 
 #-------------------------------------------------------------------
 # ------------------------------------------------------------------        
 
+
 class Sedevol(object):
   """Class for PEGASE evolutionary SED"""
 
-  def __init__(self, time, w, dirac = False):
+  def __init__(self, time, w, dirac = False, sigma = 10.):
 
     self.time = time
     self.w    = w
     self.fevol = np.zeros((len(time),len(w)))
     self.dirac = dirac
-    self.sigma = 10. # width of emission lines
+    self.sigma = sigma # width of emission lines
 
   #def lineprofile(self, w, w0, sigma):
   #  return 1./(sigma * np.sqrt(2*np.pi)) * np.exp(-1./2.*((w-w0)/sigma)**2)
   
+
   def __add__(self, sed2): 
+
+    from time import time
     """  
     Adds 2 evolutive spectra, which can have
     different wavelength sampling, in which case the resulting wavelength scale
@@ -653,8 +663,10 @@ class Sedevol(object):
     else:
       allw.append(sed2.w)
 
+
     allw = np.unique(np.hstack(np.array(allw)))
     newsed =  Sedevol(self.time, allw, dirac = False)
+
 
     if (self.dirac is True) and (self.sigma > 0):
       for iline, wline in enumerate(self.w):
@@ -664,25 +676,46 @@ class Sedevol(object):
         else:
           #line_profile = 1./(self.sigma * np.sqrt(2*np.pi)) * np.exp(-1./2.*((allw[iok]-wline)/self.sigma)**2)
           warray = [-1.*self.sigma, 0., self.sigma]
-          for it in range(len(self.time)):
-            f = interpolate.interp1d(wline+warray, [0.,1.,0.])
-            newsed.fevol[it,iok] += 1.//self.sigma * self.fevol[it,iline] * f(allw[iok])
-    else:
+          #for it in range(len(self.time)):
+          #  f = interpolate.interp1d(wline+warray, [0.,1.,0.])
+          #  newsed.fevol[it,iok] += 1.//self.sigma * self.fevol[it,iline] * f(allw[iok])
+          fint = np.interp(allw[iok], wline+warray, [0.,1.,0.])
+          newsed.fevol[:,iok] += 1./self.sigma * np.outer(self.fevol[:,iline], fint)
+
+    else: # first operand spectra is not lines : store it, interpolated on allw
       for it in range(len(self.time)):
         finterp = interpolate.interp1d(self.w,self.fevol[it,:])
         newsed.fevol[it,:] += finterp(allw)
 
-    if (sed2.dirac is True) and (sed2.sigma > 0):
+
+    if (sed2.dirac is True) and (sed2.sigma > 0): # second operand is lines: broaden lines, store them, interpolated on allw
       for iline, wline in enumerate(sed2.w):
+
+        iokdebug = np.where(np.abs(allw-wline) < 20*sed2.sigma)[0] # where returns a tuple !
         iok = np.where(np.abs(allw-wline) < sed2.sigma)[0] # where returns a tuple !
-        if len(iok)==1:
+
+        if len(iok)==1: # same as in "else", but faster
           newsed.fevol[:,iok[0]] += 1./sed2.sigma * sed2.fevol[:,iline]#.reshape(sed2.nt,1)
         else:
-          #line_profile = 1./(self.sigma * np.sqrt(2*np.pi)) * np.exp(-1./2.*((allw[iok]-wline)/self.sigma)**2)
+          #full line_profile = 1./(self.sigma * np.sqrt(2*np.pi)) * np.exp(-1./2.*((allw[iok]-wline)/self.sigma)**2)
+          #for it in range(len(sed2.time)):
+          #  newsed.fevol[it,iok] += 1./sed2.sigma * sed2.fevol[it,iline] * f(allw[iok])
           warray = [-1.*sed2.sigma, 0., sed2.sigma]
-          for it in range(len(sed2.time)):
-            f = interpolate.interp1d(wline+warray, [0.,1.,0.])
-            newsed.fevol[it,iok] += 1./sed2.sigma * sed2.fevol[it,iline] * f(allw[iok])
+          #finterp = interpolate.interp1d(wline+warray, [0.,1.,0.], copy=False)
+          #fint = finterp(allw[iok])
+          fint = np.interp(allw[iok],wline+warray, [0.,1.,0.])
+          newsed.fevol[:,iok] += 1./sed2.sigma * np.outer(sed2.fevol[:,iline], fint)
+        if False:
+          print '------------------------'
+          print 
+          print allw[iokdebug]
+          print 'f1:',np.interp(allw[iokdebug], self.w, self.fevol[3,:])
+          print 'f2:',wline,sed2.fevol[3,iline]
+          print 'ff:',np.interp(allw[iokdebug], newsed.w, newsed.fevol[3,:])
+          print 'ff:',newsed.fevol[3,iokdebug]
+          print '------------------------'
+
+
     else:
       for it in range(len(sed2.time)):
         finterp = interpolate.interp1d(sed2.w, sed2.fevol[it,:])
@@ -705,9 +738,9 @@ class Sedevol(object):
     z = cosmic_z(self.time, zfor)
 
     mag = np.zeros(len(self.time))
-    dimming = 4*np.pi*(10.*u.pc.to(u.cm))**2 # surface of a 10pc radius sphere in cm^2 
+    #dimming = 4*np.pi*(10.*u.pc.to(u.cm))**2 # surface of a 10pc radius sphere in cm^2 
     for it in range(len(self.time)):
-      sp = Spectrum(w = self.w, f = self.fevol[it,:]/dimming)
+      sp = Spectrum(w = self.w, f = self.fevol[it,:]).dimmed_to_absolute()
       mag[it] = myfilter.mag(sp, calibtype = calibtype) #AB magnitude is the default
     return mag, z
 
@@ -769,7 +802,7 @@ class Sedevol(object):
     if age in self.time:
       #iage = np.abs(self.time - age).argmin()
       #return self.fevol[iage,:]
-      return self.fevol[np.searchsorted(self.time, age),:]
+      return Spectrum(w=self.w, f = self.fevol[np.searchsorted(self.time, age),:])
     else:
       # need to interpolate...
       itok = (self.time > 0)
@@ -780,7 +813,7 @@ class Sedevol(object):
       myf = 10.**f(np.log10(age))
       iflow = ( np.abs(myf/1e-99 -1) < 1e-5)
       myf[iflow] = 0.
-      return myf
+      return Spectrum(w = self.w, f = myf)
 
   
 #-------------------------------------------------------------------
@@ -833,32 +866,35 @@ class Model(object):
     self.props = Properties()
     self.norm = 1.
 
-  def upscale(self, norm):
+  def upscale(self, norm, oldnorm = None):
+    if oldnorm is None: # default case : we rescale respectively to previous norm.
+      oldnorm = self.norm
+
     self.norm             = norm
-    self.props.mgal      *= norm
-    self.props.mstars    *= norm
-    self.props.mWD       *= norm
-    self.props.mNSBH     *= norm
-    self.props.msubstell *= norm
-    self.props.mgas      *= norm
-    self.props.Lbol      *= norm
-    self.props.SFR       *= norm
-    self.props.nLym      *= norm
-    self.props.nSNII     *= norm
-    self.props.nSNIa     *= norm
-    self.props.nLym      *= norm
+    self.props.mgal      *= norm/oldnorm
+    self.props.mstars    *= norm/oldnorm
+    self.props.mWD       *= norm/oldnorm
+    self.props.mNSBH     *= norm/oldnorm
+    self.props.msubstell *= norm/oldnorm
+    self.props.mgas      *= norm/oldnorm
+    self.props.Lbol      *= norm/oldnorm
+    self.props.SFR       *= norm/oldnorm
+    self.props.nLym      *= norm/oldnorm
+    self.props.nSNII     *= norm/oldnorm
+    self.props.nSNIa     *= norm/oldnorm
+    self.props.nLym      *= norm/oldnorm
     try:
-      self.seds_cont.fevol   *= norm
+      self.seds_cont.fevol   *= norm/oldnorm
     except:
       pass # no SED defined yet.
 
     try:
-      self.seds_lines.fevol      *= norm
+      self.seds_lines.fevol      *= norm/oldnorm
     except:
       pass # no SED defined yet.
 
     try:
-      self.seds.fevol      *= norm
+      self.seds.fevol      *= norm/oldnorm
     except:
       pass # no SED defined yet.
 
@@ -926,7 +962,7 @@ class Model(object):
       self.seds = self.seds_cont + self.seds_lines 
                 
       if self.norm != 1. :
-        self.upscale(self.norm)
+        self.upscale(self.norm, oldnorm = 1.)
 
     if verbose:
       print 'Done...'
@@ -985,7 +1021,7 @@ class Model(object):
     self.seds.time           = self.props.time
                 
     if self.norm != 1. :
-      self.upscale(self.norm)
+      self.upscale(self.norm, oldnorm = 1.)
 
     hdulist.close()
 
@@ -1002,7 +1038,8 @@ class Model(object):
     plt.xlim([700.,20000.])
 
     for i in ages:
-      plt.plot( self.seds.w, self.seds.sed_at_age(i),linewidth=2.)
+      mysed = self.seds.sed_at_age(i)
+      plt.plot(mysed.w, mysed.f,linewidth=2.)
 
     leg=plt.legend([str(a)+' Myr' for a in ages], loc = 0, **kwargs)
     for l in leg.get_lines():
@@ -1054,11 +1091,12 @@ class Filter(object):
       self.read_pegase_filter(pref,filename)
       self.name = os.path.splitext(os.path.basename(filename))[0]
 
-  def multintegrate(self, spectrum,  weight = None):
+  def multintegrate(self, spectrum,  weight = None, integ_type = 'double_interp'): # 'interp_on_trans', 'double_interp'
     """ Assumes spectrum.w is sorted increasingly """
 
     #if tofnu is None:
     #  tofnu = False # spectrum is flambda
+
     if weight is None:
       weight = np.ones(self.nw)
 
@@ -1070,26 +1108,46 @@ class Filter(object):
     if not(is_sorted):
       print "WARNING : wavelengths not sorted in call to multintegrate !!!!"
 
-    # interpolate input spectrum on transmission curve
-    fluxtot = 0.
+    #integ_type = 'interp_on_trans'
+    #integ_type = 'double_interp'
 
-    fint = np.interp(self.trans.w, spectrum.w, spectrum.f) # faster than interp1d. extrapolations set to limits
-    fint[self.trans.w < spectrum.w[0]] = 0.
-    fint[self.trans.w > spectrum.w[-1]] = 0.
-    try:
-     #      finterp = interpolate.interp1d(spectrum.w,spectrum.f)
-     # if tofnu is False:
-     #        fluxtot = integrate.trapz(weight * finterp(self.trans.w) * self.trans.f, self.trans.w)
-      fluxtot = integrate.trapz(weight * fint * self.trans.f, self.trans.w)
-      #else:
-      #  c=2.99792458e18 # A/s
-      #  fnu = self.trans.f * self.trans.w ** 2 / c
-      ## fluxtot = integrate.trapz(weight * finterp(self.trans.w) * fnu, self.trans.w)
-      #  fluxtot = integrate.trapz(weight * fint * fnu, self.trans.w)
+    if integ_type == 'interp_on_trans': # interpolate input spectrum on transmission curve
 
-    except ValueError:
-      print "Error in integrating spectrum on filter transmission"
-      raise
+      fluxtot = 0.
+      # spectrum flux interpolated on transmission wavelengths. Not good is there are emssion lines
+      fint = np.interp(self.trans.w, spectrum.w, spectrum.f) # faster than interp1d. extrapolations set to limits
+      fint[self.trans.w < spectrum.w[0]] = 0.
+      fint[self.trans.w > spectrum.w[-1]] = 0.
+      try:
+       #      finterp = interpolate.interp1d(spectrum.w,spectrum.f)
+       # if tofnu is False:
+       #        fluxtot = integrate.trapz(weight * finterp(self.trans.w) * self.trans.f, self.trans.w)
+        fluxtot = integrate.trapz(weight * fint * self.trans.f, self.trans.w) # check tofnu keyword ? is it different when we integrate over fnu ?
+        #else:
+        #  c=2.99792458e18 # A/s
+        #  fnu = self.trans.f * self.trans.w ** 2 / c
+        ## fluxtot = integrate.trapz(weight * finterp(self.trans.w) * fnu, self.trans.w)
+        #  fluxtot = integrate.trapz(weight * fint * fnu, self.trans.w)
+      except ValueError:
+        print "Error in integrating spectrum on filter transmission"
+        raise
+
+    if (integ_type == 'double_interp'): # interpolate input spectrum on transmission curve
+      fluxtot = 0.
+      allw = np.sort(np.unique(np.hstack((self.trans.w, spectrum.w))))
+      f1 = np.interp(allw, spectrum.w, spectrum.f) # faster than interp1d. extrapolations set to limits
+      f2 = np.interp(allw, self.trans.w, weight * self.trans.f) # faster than interp1d. extrapolations set to limits
+      ioutcommon = (allw<np.min(self.trans.w)) | (allw<np.min(spectrum.w)) | (allw>np.max(self.trans.w)) | (allw>np.max(spectrum.w))
+      f1[ioutcommon] = 0.
+      f2[ioutcommon] = 0.
+      #fint=f1*f2
+      try:
+        fluxtot = integrate.trapz(f1*f2, allw) # check tofnu keyword ? is it different when we integrate over fnu ?
+      except:
+        print "Error in integrating spectrum on filter transmission"
+        raise
+
+
     return fluxtot #erg/s/cm^2/A*A in filter
 
   def calibrate(self):
