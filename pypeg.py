@@ -181,7 +181,49 @@ def make_and_read_from_p2file(*args, **kwargs):
   return model
 
 @memoize
-def igm_transmission(wavelength, redshift):
+def igm_transmission_madauH(wavelength_obs, z_source):
+
+  red_wavelength = np.zeros(5)
+
+  # constants from Madau et al 1996
+  # Ly alpha..delta coefficients and wavelength
+  A = np.array([0.0036, 1.7e-3, 1.2e-3, 9.3e-4])
+  wavelength = np.array([1216., 1026., 973., 950., 912.])
+
+
+  xc = wavelength_obs / wavelength[4]
+  xem = 1.+z_source
+
+  red_wavelength = xem * wavelength
+
+  # We consider that between 912A and 950A, there is only Ly_delta
+  # absorption, because of lacking coefficients in Madau et al 1996.
+
+  igm_absorption = np.zeros(len(wavelength_obs))
+
+  # Ly alpha, beta, gamma, delta
+  for il in range(4):
+    cond = (wavelength_obs <= red_wavelength[il]) & \
+           (wavelength_obs > red_wavelength[il+1])
+    for jl in range(il+1):
+      igm_absorption[cond] += A[jl] * (wavelength_obs[cond] / wavelength[jl])**3.46
+
+  # Add the photoelectric effect (shortwards 912A)
+  cond = (wavelength_obs <= red_wavelength[4])
+  for jl in range(4):
+    igm_absorption[cond] += A[jl] * (wavelength_obs[cond] / wavelength[jl])**3.46
+  igm_absorption[cond] += \
+      0.25  * xc[cond]**3 * (xem**0.46 - xc[cond]**0.46) \
+      + 9.4   * xc[cond]**1.5 * (xem**0.18 - xc[cond]**0.18) \
+      - 0.7   * xc[cond]**3 * (xc[cond]**(-1.32) - xem**(-1.32)) \
+      - 0.023 * (xem**1.68 - xc[cond]**1.68)
+
+  igm_transmission = np.exp(-igm_absorption)
+
+  return igm_transmission
+
+@memoize
+def igm_transmission(wavelengthin, redshift):
   from scipy.misc import factorial
 
   """Intergalactic transmission (Meiksin, 2006)
@@ -191,7 +233,7 @@ def igm_transmission(wavelength, redshift):
   Parameters
   ----------
   wavelength: array like of floats
-     The wavelength(s) in nm.
+     The wavelength(s) in Angstrom.
   redshift: float
      The redshift. Must be strictly positive.
 
@@ -206,6 +248,7 @@ def igm_transmission(wavelength, redshift):
   Author: Yannick Roehlly, Mederic Boquien, Denis Burgarella
 
   """
+  wavelength = 0.1 * wavelengthin # A to nm
   n_transitions_low = 10
   n_transitions_max = 31
   gamma = 0.2788  # Gamma(0.5,1) i.e., Gamma(2-beta,1) with beta = 1.5
@@ -767,7 +810,7 @@ class Sedevol(object):
     for itok in range(np.sum(iok)):
       it = np.arange(len(self.time))[iok][itok]
       if igm:
-        igm_trans = igm_transmission(0.1*self.w*(1.+z[it]), z[it]) 
+        igm_trans = igm_transmission(self.w*(1.+z[it]), z[it]) 
       sp_ab[it] = Spectrum(w = self.w * (1.+z[it]), f = igm_trans * self.fevol[it,:] / (1.+z[it]) )
       fnu = sp_ab[it].f * (sp_ab[it].w)**2 / c
       sp_ab[it].f = -2.5 * np.log10(fnu) - 48.60 + 5.*np.log10(sqdimming[it])
@@ -791,7 +834,7 @@ class Sedevol(object):
     for itok in range(np.sum(iok)):
       it = np.arange(len(self.time))[iok][itok]
       if igm:
-        igm_trans = igm_transmission(0.1*self.w*(1.+z[it]), z[it]) # to be memoized???
+        igm_trans = igm_transmission(self.w*(1.+z[it]), z[it]) # to be memoized???
       sp = Spectrum(w = self.w * (1.+z[it]), f = igm_trans * self.fevol[it,:] / (1.+z[it]) )
       mag[it] = myfilter.mag(sp, calibtype=calibtype) +5.*np.log10(sqdimming[it]) #AB magnitude is the default
 
