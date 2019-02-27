@@ -2,6 +2,15 @@
 
 # module population from pypeg : mass functions etc.
 
+from __future__ import division
+from __future__ import print_function
+from __future__ import absolute_import
+from builtins import next
+from builtins import input
+from builtins import str
+from builtins import range
+from builtins import object
+
 import numpy as np
 import matplotlib.pyplot as plt
 import pypeg
@@ -112,11 +121,11 @@ def make_schechter_from_zpegdata(zpegfile, zbins = None,
 
     if len(iabnormal)>0:
       ibad = iabnormal[0]
-      print 'zbins = ', zbins
-      print ibad
-      print 'HUHU.....', zpd['zmax'][ibad], zpd['0_z'][ibad], zmins[ibad], zmaxs[ibad]
+      print('zbins = ', zbins)
+      print(ibad)
+      print('HUHU.....', zpd['zmax'][ibad], zpd['0_z'][ibad], zmins[ibad], zmaxs[ibad])
     else :
-      print 'Looks good !'
+      print('Looks good !')
 
   cosmo = FlatLambdaCDM(H0=zph['h100']*100., Om0=zph['Omega0'])
 
@@ -131,14 +140,14 @@ def make_schechter_from_zpegdata(zpegfile, zbins = None,
     if magoffsets is not None:
       for htype in np.unique(data_types):
         index_istype = np.where(data_types == htype)[0]
-        if htype in magoffsets.keys():
+        if htype in list(magoffsets.keys()):
 
-          print 'TYPEEEEEEEEE : ', htype, magoffsets[htype], 'index=', index_istype
+          print('TYPEEEEEEEEE : ', htype, magoffsets[htype], 'index=', index_istype)
           data_magarr[index_istype] += magoffsets[htype]
         else:
-          print 'oups....  we have type',htype
-          print 'using means offset....'
-          data_magarr[index_istype] += np.mean(magoffsets.values())
+          print('oups....  we have type',htype)
+          print('using means offset....')
+          data_magarr[index_istype] += np.mean(list(magoffsets.values()))
 
 
     for imag in range(len(magbins)-1):
@@ -179,7 +188,7 @@ def make_schechter_from_zpegdata(zpegfile, zbins = None,
 
     ax1.plot(mags, slf[0])
     
-    a = raw_input('press')
+    a = input('press')
 
 def make_schechter_from_stuffcat(stuff_file, area, zbins = None, magbins = None, H0 = 70., Om0 = 0.3):
   from pprint import pprint 
@@ -197,7 +206,6 @@ def make_schechter_from_stuffcat(stuff_file, area, zbins = None, magbins = None,
     zbins = np.linspace(0.,5., 5./(0.5)+1)
   if magbins is None:
     magbins = np.arange(-25.,-15., 0.5)
-
 
   LFs = np.zeros((len(magbins)-1, len(zbins)-1))
   LFerrs = np.zeros((len(magbins)-1, len(zbins)-1))
@@ -350,7 +358,7 @@ class Lfunction(Popfunc):
         fn = prefix_filters + 'u_prime.fil'
         self.filter = pypeg.Filter(filename = fn)
       except:
-        print "Error : ZPEG environment variable not defined ?"
+        print("Error : ZPEG environment variable not defined ?")
         self.filter = pypeg.Filter()
 
 
@@ -582,10 +590,10 @@ class Counts(object):
       plt.clf()
       t1 = time.time()
       c = self.counts(model, TMF, myfilter, igm = False) 
-      print 'counts done in ',time.time()-t1
+      print('counts done in ',time.time()-t1)
       t1 = time.time()
       c2 = self.counts(model, TMF, myfilter, igm = True) 
-      print 'counts done in ',time.time()-t1
+      print('counts done in ',time.time()-t1)
       plt.ion()
       plt.plot(self.marr,(c2-c)/c, label = 'relative diff  w/wo IGM /sqdeg/dm=1')
       plt.yscale('log')
@@ -595,8 +603,8 @@ class Counts(object):
         pypeg.Filter(filename = prefix_filters+'u_prime.fil'), 
         pypeg.Filter(filename = prefix_filters+'i_prime.fil'), igm = True)
 
-      print 'counts done in ',time.time()-t1
-      print "nz, nm, nc, nM =",len(self.zarr), len(self.marr), len(self.carr), len(TMF.logM)
+      print('counts done in ',time.time()-t1)
+      print("nz, nm, nc, nM =",len(self.zarr), len(self.marr), len(self.carr), len(TMF.logM))
 
       #print n.shape
       #plt.plot(self.marr, np.sum( n_incells / 
@@ -617,14 +625,14 @@ class Counts(object):
       n = self.colormagcounts_incells(model, TMF, 
         pypeg.Filter(filename = prefix_filters+'u_prime.fil'), 
         pypeg.Filter(filename = prefix_filters+'i_prime.fil'), igm = True)
-      print 'counts done in ',time.time()-t1
+      print('counts done in ',time.time()-t1)
       t1 = time.time()
       n2 = self.colormagcounts_incells(model, TMF, 
         pypeg.Filter(filename = prefix_filters+'u_prime.fil'), 
         pypeg.Filter(filename = prefix_filters+'i_prime.fil'), igm = False)
-      print 'counts done in ',time.time()-t1
+      print('counts done in ',time.time()-t1)
 
-      print 'max diff=', np.max(np.abs(n2-n))
+      print('max diff=', np.max(np.abs(n2-n)))
       plt.figure(4)    
       plt.clf()
       n[(n<1e-5)&(n>0.)] = 1e-6

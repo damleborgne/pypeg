@@ -1,3 +1,7 @@
+from __future__ import division
+from builtins import input
+from builtins import range
+from past.utils import old_div
 import numpy as np
 from matplotlib import pyplot as plt
 
@@ -12,7 +16,7 @@ def igm_transmission(z_source, wavelength_obs):
   wavelength = np.array([1216., 1026., 973., 950., 912.])
 
 
-  xc = wavelength_obs / wavelength[4]
+  xc = old_div(wavelength_obs, wavelength[4])
   xem = 1.+z_source
 
   red_wavelength = xem * wavelength
@@ -27,12 +31,12 @@ def igm_transmission(z_source, wavelength_obs):
     cond = (wavelength_obs <= red_wavelength[il]) & \
            (wavelength_obs > red_wavelength[il+1])
     for jl in range(il+1):
-      igm_absorption[cond] += A[jl] * (wavelength_obs[cond] / wavelength[jl])**3.46
+      igm_absorption[cond] += A[jl] * (old_div(wavelength_obs[cond], wavelength[jl]))**3.46
 
   # Add the photoelectric effect (shortwards 912A)
   cond = (wavelength_obs <= red_wavelength[4])
   for jl in range(4):
-    igm_absorption[cond] += A[jl] * (wavelength_obs[cond] / wavelength[jl])**3.46
+    igm_absorption[cond] += A[jl] * (old_div(wavelength_obs[cond], wavelength[jl]))**3.46
   igm_absorption[cond] += \
       0.25  * xc[cond]**3 * (xem**0.46 - xc[cond]**0.46) \
       + 9.4   * xc[cond]**1.5 * (xem**0.18 - xc[cond]**0.18) \
@@ -48,5 +52,5 @@ if __name__ == '__main__':
   t = igm_transmission(0., x)
   plt.ion()
   plt.plot(x,t)
-  a = input()
+  a = eval(input())
 

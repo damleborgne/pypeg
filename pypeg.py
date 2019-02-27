@@ -1,12 +1,21 @@
+from __future__ import division
+from __future__ import print_function
+from __future__ import absolute_import
+from future import standard_library
+standard_library.install_aliases()
+from builtins import input
+from builtins import str
+from builtins import range
+
 import numpy as np
 import re
-import io 
+import pypeg_io as io 
+import pypeg_utils as utils
 from astropy import constants as const
 from astropy import units as u
 import astropy as ap
 from copy import deepcopy
 from scipy import interpolate, integrate
-import dlb.stats
 from astropy import cosmology
 
 
@@ -64,7 +73,7 @@ Routines :
   - w, nw, f
   - w,f = fromfile(file) : read from ascii 2-column file
   - normalize(w0,f0) : so that f(w0) = f0
-  - smooth(wscale, w0 = median(w)) : use dlb.stats.smooth
+  - smooth(wscale, w0 = median(w)) 
 
 - Class Sedevol
   - self.time = time
@@ -146,7 +155,7 @@ Routines :
 
 
 
-print 'init cosmo...'
+print('init cosmo...')
 mycosmo = cosmology.Planck13
 #mycosmo = cosmology.WMAP7
 zscale0 = np.logspace(0.,1.1,100)-1.
@@ -154,11 +163,11 @@ tscale0 = mycosmo.age(zscale0)*1e3 # Myr #Slow !!! Do only once....
 zscale = np.logspace(1e-10,1.1,100)-1.
 tscale = mycosmo.age(zscale)*1e3 # Myr #Slow !!! Do only once....
 ldistscale  = mycosmo.luminosity_distance(zscale).to(u.cm).value
-print 'done init cosmo....'
+print('done init cosmo....')
 
 
 def memoize(f):
-  class MemoizeMutable:
+  class MemoizeMutable(object):
     """Memoize(fn) - an instance which acts like fn but memoizes its arguments
        Will work on functions with mutable arguments (slower than Memoize, but of for np.arrays)
     """
@@ -166,9 +175,9 @@ def memoize(f):
       self.fn = fn
       self.memo = {}
     def __call__(self, *args):
-      import cPickle
-      str = cPickle.dumps(args)
-      if not self.memo.has_key(str):
+      import pickle
+      str = pickle.dumps(args)
+      if str not in self.memo:
         self.memo[str] = self.fn(*args)
       return self.memo[str]
 
@@ -242,7 +251,7 @@ def igm_transmission(wavelengthin, redshift):
   igm_transmission: numpy array of floats
       The intergalactic transmission at each input wavelength.
   
-  Stolen from pcigale : 
+  Taken from "pcigale" : 
   Copyright 2014 Yannick Roehlly, Mederic Boquien, Denis Burgarella
   Licensed under the CeCILL-v2 licence - see Licence_CeCILL_V2-en.txt
   Author: Yannick Roehlly, Mederic Boquien, Denis Burgarella
@@ -395,11 +404,11 @@ class SSP(object):
 
     if os.path.isfile(self.ssp_prefix+'_SSPs.dat'):
       if verbose:
-        print "Warning : the SSPs {0} already exists.".format(self.ssp_prefix)
+        print("Warning : the SSPs {0} already exists.".format(self.ssp_prefix))
         if overwrite:
-          print "Overwriting the SSPs..."
+          print("Overwriting the SSPs...")
         else :
-          print "Not doing anything..."
+          print("Not doing anything...")
 
       if overwrite: # delete SSP files
         os.remove(self.ssp_prefix+'_SSPs.dat')
@@ -454,8 +463,6 @@ class Scenario(object):
       self.extinction= 0
       self.inclination= 0.
                      
-
-
   def make_from_header(self):
       """ Input = array of strings (PEGASE 2 header).-> stores the information into scenario"""
       pass #TBD#
@@ -542,11 +549,11 @@ def delete_files(scenarios, overwrite_without_prompt = True):
       if overwrite_without_prompt:
         os.remove(f)
       else:
-        yy = raw_input('Warning : the file '+f+' already exists ! delete it ? (y/n)')
+        yy = input('Warning : the file '+f+' already exists ! delete it ? (y/n)')
         if (yy == 'y') or (yy == ''):
           os.remove(f)
         else:
-          print 'Try again with another filename, then.....'
+          print('Try again with another filename, then.....')
           return
 
 
@@ -557,24 +564,24 @@ def compute_scenarios(scenarios, tmpfile = None, overwrite = False, verbose = Tr
     tmpfile = '/tmp/temp.scn'
 
   # skip some scenarios if wanted
-  print 'writing scenarios...'
+  print('writing scenarios...')
   scens = scenarios[:]
   if skip_existing:
     for s in scens:
       if os.path.exists(s.output_file):
-        print "removing "+s.output_file+" from scenarios to be computed"
+        print("removing "+s.output_file+" from scenarios to be computed")
         scenarios.remove(s)
 
   if len(scenarios)>0:
     write_scenarios(tmpfile, scenarios)
     delete_files(scenarios, overwrite_without_prompt = overwrite)
 
-    print 'computing scenarios...'
+    print('computing scenarios...')
     run_scenarios_file(tmpfile, verbose = verbose)
 
 
   # Finally, read and return models from fits files
-  print 'reading models from fits files'
+  print('reading models from fits files')
   models = []
   for f in [s.output_file for s in scens]:
     m = Model()
@@ -617,43 +624,9 @@ class Spectrum(object):
 
     i0 = (np.abs(self.w - w0)).argmin()
     nwind = (int(wscale / (self.w[i0+1]-self.w[i0])))/2*2+1 # odd number
-    #yhat = dlb.stats.savitzky_golay(self.f, nwind, 4)
-    #print 'windo size = ',nwind, self.w[i0+1]-self.w[i0], wscale, self.w, w0, i0, self.w[i0-10:i0+10]
-    yhat = dlb.stats.smooth(self.f, window_len = nwind, window = 'hanning')
+    yhat = utils.smooth(self.f, window_len = nwind, window = 'hanning')
     self.f = yhat
 
-  ### This is the Gaussian data smoothing function I wrote ###  
-
-  def smoothnotworking(self, wscale, w0 = None):
-
-    if w0 is None:
-      w0 = np.median(self.w)
-
-    i0 = (np.abs(self.w - w0)).argmin()
-    degree = (int(wscale / (self.w[i0+1]-self.w[i0])))/2*2+1
-
-    degree = 11
-    window=degree*2-1  
-    weight=np.ones(window)  
-    weightGauss=[]  
-
-    for i in range(window):  
-      i=i-degree+1 
-      frac=i/float(window)  
-      gauss=1/(np.exp((4*(frac))**2))  
-      weightGauss.append(gauss)  
-
-    weight=np.array(weightGauss)*weight  
-    smoothed=[0.0]*(len(self.f)-window)
-
-    for i in range(len(smoothed)):  
-      smoothed[i]=sum(np.array(self.f[i:i+window])*weight)/sum(weight)  
-
-    self.f = smoothed  
-
-  def dimmed_to_absolute(self):
-    dimming = 4*np.pi*(10.*u.pc.to(u.cm))**2 # surface of a 10pc radius sphere in cm^2 
-    return Spectrum(w=self.w, f = self.f / dimming)
 
 #-------------------------------------------------------------------
 # ------------------------------------------------------------------        
@@ -688,6 +661,7 @@ class Sedevol(object):
 
     if not isinstance(sed2, Sedevol):
       raise TypeError('unsupported operand type(s) for : \''+str(type(self))+'\' and \''+str(type(sed2))+'\'')
+
     #assert self.time == sed2.nt, 'Sedevol.__add__: operand self('+str(self)+') has different number of timesteps than other ('+str(sed2)+')'
     assert not((self.time-sed2.time).any()), 'Sedevol.__add__: operand self('+str(self)+') has some different timesteps than other ('+str(sed2)+')'
 
@@ -749,14 +723,14 @@ class Sedevol(object):
           fint = np.interp(allw[iok],wline+warray, [0.,1.,0.])
           newsed.fevol[:,iok] += 1./sed2.sigma * np.outer(sed2.fevol[:,iline], fint)
         if False:
-          print '------------------------'
-          print 
-          print allw[iokdebug]
-          print 'f1:',np.interp(allw[iokdebug], self.w, self.fevol[3,:])
-          print 'f2:',wline,sed2.fevol[3,iline]
-          print 'ff:',np.interp(allw[iokdebug], newsed.w, newsed.fevol[3,:])
-          print 'ff:',newsed.fevol[3,iokdebug]
-          print '------------------------'
+          print('------------------------')
+          print() 
+          print(allw[iokdebug])
+          print('f1:',np.interp(allw[iokdebug], self.w, self.fevol[3,:]))
+          print('f2:',wline,sed2.fevol[3,iline])
+          print('ff:',np.interp(allw[iokdebug], newsed.w, newsed.fevol[3,:]))
+          print('ff:',newsed.fevol[3,iokdebug])
+          print('------------------------')
 
 
     else:
@@ -942,7 +916,7 @@ class Model(object):
       pass # no SED defined yet.
 
   def read_from_p2file(self,filename, sigma = None, verbose = True):
-    print 'Reading scenario...'
+    print('Reading scenario...')
     with open(filename,'r') as f:
       # read header
       self.scen=Scenario()
@@ -1008,7 +982,7 @@ class Model(object):
         self.upscale(self.norm, oldnorm = 1.)
 
     if verbose:
-      print 'Done...'
+      print('Done...')
 
   def read_from_fitsfile(self, filename, sigma = None):
     from astropy.io import fits
@@ -1149,7 +1123,7 @@ class Filter(object):
 
     is_sorted = np.all(np.diff(spectrum.w)>=0)
     if not(is_sorted):
-      print "WARNING : wavelengths not sorted in call to multintegrate !!!!"
+      print("WARNING : wavelengths not sorted in call to multintegrate !!!!")
 
     #integ_type = 'interp_on_trans'
     #integ_type = 'double_interp'
@@ -1172,7 +1146,7 @@ class Filter(object):
         ## fluxtot = integrate.trapz(weight * finterp(self.trans.w) * fnu, self.trans.w)
         #  fluxtot = integrate.trapz(weight * fint * fnu, self.trans.w)
       except ValueError:
-        print "Error in integrating spectrum on filter transmission"
+        print("Error in integrating spectrum on filter transmission")
         raise
 
     if (integ_type == 'double_interp'): # interpolate input spectrum on transmission curve
@@ -1187,7 +1161,7 @@ class Filter(object):
       try:
         fluxtot = integrate.trapz(f1*f2, allw) # check tofnu keyword ? is it different when we integrate over fnu ?
       except:
-        print "Error in integrating spectrum on filter transmission"
+        print("Error in integrating spectrum on filter transmission")
         raise
 
 
@@ -1229,7 +1203,7 @@ class Filter(object):
         with open(os.getenv('ZPEG_ROOT')+'/data/filters/'+filename):
           mypref = os.getenv('ZPEG_ROOT')+'/data/filters/'
       except:
-        print "impossible to open the filter in dir "+pref+" or $ZPEG_ROOT"
+        print("impossible to open the filter in dir "+pref+" or $ZPEG_ROOT")
         raise
 
     # read file
@@ -1253,7 +1227,7 @@ class Filter(object):
     self.trans.f = self.trans.f[:i]
 
     if self.transtype == -1:
-      print "Setting filter ", filename, " to photon transmission (=default)"
+      print("Setting filter ", filename, " to photon transmission (=default)")
       self.transtype = 1 # default = photon transmission
 
     self.transorig = deepcopy(self.trans)
@@ -1316,3 +1290,8 @@ class Filter(object):
       self.trans.f = self.trans.f[iok]
       self.nw = len(self.trans.w)
       self.calibrate()
+
+
+
+if __name__ == '__main__':
+  pass

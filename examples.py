@@ -1,7 +1,10 @@
+from __future__ import print_function
+from __future__ import absolute_import
+from builtins import input
 import numpy as np
 import matplotlib.pyplot as plt
-import pypeg.pypeg as pp
-import pypeg.populations as pop
+import pypeg as pp
+import populations as pop
 import astropy as ap
 import os
 from astropy import units as units
@@ -29,7 +32,7 @@ def example():
   plt.subplot(3,3,1)
   ages = model.props.time
   iage = np.abs(ages - 10000).argmin()
-  print ages[iage]
+  print(ages[iage])
   plt.plot(model.seds.w, model.seds.fevol[iage,:], label = '{0}'.format(ages[iage]))
   #plt.plot(model.seds.w, model.seds.sed_at_age(10022.), label = '10022')
   plt.plot(model.seds.w, model.seds.sed_at_age(10000.).f, label = '10000')
@@ -84,7 +87,7 @@ def example():
   plt.ylim(1e-6,1)
 
 
-  a = raw_input()
+  a = input()
 
 if __name__ == '__main__':
   example()
