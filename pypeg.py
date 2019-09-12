@@ -9,8 +9,8 @@ from builtins import range
 
 import numpy as np
 import re
-import pypeg_io as io 
-import pypeg_utils as utils
+import pypeg.pypeg_io as io 
+import pypeg.pypeg_utils as utils
 from astropy import constants as const
 from astropy import units as u
 import astropy as ap
@@ -157,10 +157,15 @@ Routines :
 
 print('init cosmo...')
 mycosmo = cosmology.Planck13
+
+#from astropy.cosmology import FlatLambdaCDM
+#mycosmo = FlatLambdaCDM(H0=70., Om0=1.)
+
+
 #mycosmo = cosmology.WMAP7
 zscale0 = np.logspace(0.,1.1,100)-1.
 tscale0 = mycosmo.age(zscale0)*1e3 # Myr #Slow !!! Do only once....
-zscale = np.logspace(1e-10,1.1,100)-1.
+zscale = np.logspace(1e-10,2.,100)-1.
 tscale = mycosmo.age(zscale)*1e3 # Myr #Slow !!! Do only once....
 ldistscale  = mycosmo.luminosity_distance(zscale).to(u.cm).value
 print('done init cosmo....')
@@ -627,6 +632,10 @@ class Spectrum(object):
     yhat = utils.smooth(self.f, window_len = nwind, window = 'hanning')
     self.f = yhat
 
+  def dim_to_absolute(self):
+    dimming = 4*np.pi*(10.*u.pc.to(u.cm))**2 # surface of a 10pc radius sphere in cm^2 
+    self.f /= dimming
+
 
 #-------------------------------------------------------------------
 # ------------------------------------------------------------------        
@@ -747,6 +756,7 @@ class Sedevol(object):
       self.fevol[i,:] = Spectrum(w = self.w, f = self.fevol[i,:]).smooth(wscale, w0 = w0).f
 
   def absmags(self, myfilter, zfor = None, calibtype = 'AB'):
+    from copy import deepcopy
     #from astropy import unit
     # computes absolute magnitudes in a filter as a function of time
 
@@ -755,9 +765,9 @@ class Sedevol(object):
     z = cosmic_z(self.time, zfor)
 
     mag = np.zeros(len(self.time))
-    #dimming = 4*np.pi*(10.*u.pc.to(u.cm))**2 # surface of a 10pc radius sphere in cm^2 
     for it in range(len(self.time)):
-      sp = Spectrum(w = self.w, f = self.fevol[it,:]).dimmed_to_absolute()
+      sp = deepcopy(Spectrum(w = self.w, f = self.fevol[it,:]))
+      sp.dim_to_absolute()
       mag[it] = myfilter.mag(sp, calibtype = calibtype) #AB magnitude is the default
     return mag, z
 

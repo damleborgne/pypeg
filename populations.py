@@ -13,8 +13,9 @@ from builtins import object
 
 import numpy as np
 import matplotlib.pyplot as plt
-import pypeg
+import pypeg.pypeg as pypeg
 import os
+from astropy.cosmology import FlatLambdaCDM
 
 #pypeg = reload(pypeg)
 
@@ -190,23 +191,121 @@ def make_schechter_from_zpegdata(zpegfile, zbins = None,
     
     a = input('press')
 
-def make_schechter_from_stuffcat(stuff_file, area, zbins = None, magbins = None, H0 = 70., Om0 = 0.3):
+def get_zmax(z, sed, filters, mlim, filterlim, templates):
+  """ Returns the maximum redshift at which the object lying at redshift z with apparent magnitude mapp in filter filterapp 
+  would still be detectable given its sed in the filters, and the fitting templates 'templates' 
+
+  Parameters:
+    - z = real redshift of the galaxy
+    - mlim = limiting magnitude of the survey
+    - filterlim = pypeg.Filter object defining filter for mlim
+    - sed = sed of the galaxy
+    - filters = array of pypeg.Filter objects defining filters of the sed
+    - templates = array of pypeg.Spectrum objects defing the SED to be used to fit the object at redshift z and red-shift it to zmax
+
+  Returns:
+    - zmax = max redshift where object is detectable
+  """
+
+
+  for it in range(len(templates)):
+    for iz in range(len(zbins-1)):
+      pass
+      #mapp_z = filterlim.mag(templates[it])
+  return zmax
+
+def get_stuff_param(stuff_conf, param):
+
+  with open(stuff_conf,'r') as f:
+    lines = f.readlines()
+    for l in lines:
+      ls = l.split()
+      if len(ls) > 1:
+        if ls[0] == param:
+          mylist = ls[1].split(',')
+  return mylist
+
+def make_LF_fromstuffmabs(stuff_file, stuff_conf = None, zbins = None, magbins = None):
+  """ Assumes stuff file has 14 columns, with columns 11 begin z, 3 being mapp, 13 being mabs """
+
+  if stuff_conf is not None:
+    H0 = float(get_stuff_param(stuff_conf,'H_0')[0])
+    Om0 = float(get_stuff_param(stuff_conf,'OMEGA_M')[0])
+    field_size = float(get_stuff_param(stuff_conf,'FIELD_SIZE')[0])
+    pixel_size = float(get_stuff_param(stuff_conf,'PIXEL_SIZE')[0])
+    area = (field_size*pixel_size/3600.)**2
+  else:
+    H0 = 70.
+    Om0 = 0.3
+    area = 1.
+
+  print('AREA (sq deg)=',area)
+  s = np.loadtxt(stuff_file) #posx,posy, z, app_mag, abs_mag, hubble_type
+  z = s[:,11]
+  mapp = s[:,3]
+  mabs = s[:,13]
+
+  # define z and absolute magnitude bins
+  if zbins is None:
+    zbins = np.linspace(0.,5., 5./(0.5)+1)
+  if magbins is None:
+    magbins = np.arange(-25.,-15., 0.5)
+
+  # initialize LF
+  LFs = np.zeros((len(magbins)-1, len(zbins)-1))
+  LFerrs = np.zeros((len(magbins)-1, len(zbins)-1))
+
+  # compute Volume ponderation for each galaxy
+  Vs = np.zeros(len(s))
+  zmins = np.zeros(len(s))
+  zmaxs = np.zeros(len(s))
+
+  izinsert = np.searchsorted(zbins, z) # galaxies would take place at index "izinsert" in new array with z inserted
+  # zmin  = lower bound of the redshift bin
+  izmins = np.copy(izinsert)-1
+  izmins[izmins <= 0] = 0   # the galaxy has a lower z than the lowest zbin.... don't bother as it won't be used anyway
+  zmins = np.array(zbins)[izmins]
+  # zmax = maximum redshift at which the galaxy would still be detectable given the apparent magnitude selection. Default = end of redshift bin
+  izmaxs = np.copy(izinsert)
+  izmaxs[izmaxs >= len(zbins)] = 0   # the galaxy has a higher z than the highest zbin.... don't bother as it won't be used anyway
+  zmaxs = np.array(zbins)[izmaxs]
+
+  # compute Vs : volume within the z bin 
+  cosmo = FlatLambdaCDM(H0=H0, Om0=Om0)
+  Vs = area /  41253. * (cosmo.comoving_volume(zmaxs) - cosmo.comoving_volume(zmins)) # 41253 deg2 = 4pi sr * (180 deg/pi sr)**2
+
+  for imag in range(len(magbins)-1):
+    magmin = min([magbins[imag], magbins[imag+1]])
+    magmax = max([magbins[imag], magbins[imag+1]])
+    for iz in range(len(zbins)-1):
+      bool_galsok = ((z >= zbins[iz]) & (z < zbins[iz+1]) & (mabs >= magmin) & (mabs < magmax))
+      LFs[imag, iz] = np.sum(bool_galsok[bool_galsok] * 1./Vs.value[bool_galsok])
+      LFerrs[imag, iz] = np.sqrt(np.sum(bool_galsok[bool_galsok] * 1./Vs.value[bool_galsok]**2))
+
+  return LFs, LFerrs, magbins, zbins
+
+
+def make_schechter_from_stuffcat_with_mabs(stuff_file, stuff_conf, zbins = None, magbins = None, H0 = 70., Om0 = 0.3):
+
   from pprint import pprint 
   """ No Vmax correciton is done, and no k-correction either !!!! So it only works at z=0 in principle """
 
   from pyzpeg import pyzpeg
   from astropy.cosmology import FlatLambdaCDM
 
+  # read stuff catalog
   if frommabs:
-    s = np.loadtxt(stuff_file, usecols = ((1, 2, 11, 3, 12, 13))) #x,y,z,mag, hubble_type
+    s = np.loadtxt(stuff_file, usecols = ((1, 2, 11, 3, 12, 13))) #posx,posy, z, app_mag, abs_mag, hubble_type
   else:
-    s = np.loadtxt(stuff_file, usecols = ((1, 2, 11, 3, 12))) #x,y,z,mag, hubble_type
+    s = np.loadtxt(stuff_file, usecols = ((1, 2, 11, 3, 12))) #posx,posy, z, app_mag, hubble_type
 
+  # define z and absolute magnitude bins
   if zbins is None:
     zbins = np.linspace(0.,5., 5./(0.5)+1)
   if magbins is None:
     magbins = np.arange(-25.,-15., 0.5)
 
+  # initialize LF
   LFs = np.zeros((len(magbins)-1, len(zbins)-1))
   LFerrs = np.zeros((len(magbins)-1, len(zbins)-1))
 
@@ -217,27 +316,31 @@ def make_schechter_from_stuffcat(stuff_file, area, zbins = None, magbins = None,
 
   izinsert = np.searchsorted(zbins, s[:,2]) # galaxies would take place at index "izinsert" in new array with z inserted
 
+  # zmin  = lower bound of the redshift bin
   izmins = np.copy(izinsert)-1
   izmins[izmins <= 0] = 0   # the galaxy has a lower z than the lowest zbin.... don't bother as it won't be used anyway
+  zmins = np.array(zbins)[izmins]
 
+  # zmax = maximum redshift at which the galaxy would still be detectable given the apparent magnitude selection. Default = end of redshift bin
   izmaxs = np.copy(izinsert)
   izmaxs[izmaxs >= len(zbins)] = 0   # the galaxy has a higher z than the highest zbin.... don't bother as it won't be used anyway
-
-
-
-
-  zmins = np.array(zbins)[izmins]
   zmaxs = np.array(zbins)[izmaxs]
 
+  # get real zmax
+  ngals = s.shape[0]
+  for i in range(ngals):
+    real_zmax = get_zmax(s[i,2], )
+
+  # compute Vmax : volume within the z bin where the galaxy would be detectable, given its magnitude
   cosmo = FlatLambdaCDM(H0=H0, Om0=Om0)
   Vmaxs = area /  41253. * (cosmo.comoving_volume(zmaxs) - cosmo.comoving_volume(zmins)) # 41253 deg2 = 4pi sr * (180 deg/pi sr)**2
 
   #print s[:,3], s[:,2]
-
-  absmags = s[:,3] - 5.*(np.log10(cosmo.luminosity_distance(s[:,2]).value)+6-1)
-
+  # ABS_MAG = APP_MAG - distance modulous
   if frommabs:
     absmags = s[:,5]
+  else:
+    absmags = s[:,3] - 5.*(np.log10(cosmo.luminosity_distance(s[:,2]).value)+6-1) # warning : no k-correction here !
 
   for imag in range(len(magbins)-1):
     magmin = min([magbins[imag], magbins[imag+1]])
@@ -248,6 +351,12 @@ def make_schechter_from_stuffcat(stuff_file, area, zbins = None, magbins = None,
       LFerrs[imag, iz] = np.sqrt(np.sum(bool_galsok[bool_galsok] * 1./Vmaxs.value[bool_galsok]**2))
 
   return LFs, LFerrs, magbins, zbins
+
+def Schechter_mag(magarr, *params):
+  Log10Phi = params[0]
+  Mstar = params[1]
+  alpha = params[2]
+  return 0.4 * np.log(10.) * 10.**Log10Phi * 10.**(-0.4*(magarr-Mstar)*(alpha+1)) * np.exp(-10.**(-0.4*(magarr-Mstar))) 
 
 class Popfunc(object):
   """ Generic function for galaxy population distrbution : 
@@ -487,12 +596,31 @@ class Counts(object):
     sqdeg_per_sr=(180./np.pi)**2  
 
     for iz, z in enumerate(self.zarr):
-      mymags = -2.5*(mfunction.logM-np.log10(model.norm)) + extrap(np.array([np.log10(1.+z)]), np.log10(1.+zmodel), mmag) # TO BE CHECKED ??????
+      mymags = -2.5*(mfunction.logM-np.log10(model.norm)) + extrap(np.array([np.log10(z)]), np.log10(zmodel), mmag) # CHECKED ! interpolate in log(z) because m ~ log(d) ~ log(z) at low z
       inozero = (mfunction.N>0.) #N(logM)/Mpc3/dlogM
-      f = interpolate.interp1d(mymags[inozero], np.log10(mfunction.N[inozero]), bounds_error = False, fill_value = -1000.) # N/Mpc3/dlogm at each appmag(z)
+      f = interpolate.interp1d(mymags[inozero], np.log10(mfunction.N[inozero]), bounds_error = True, fill_value = -1000.) # N/Mpc3/dlogm at each appmag(z)
       # N/Mpc3/dlogm * (V/sqeg_per_sr)(Mpc3/sqdeg at z)  / 2.5(mag/dlogm)=> N/mag/sqdeg in bins of z, 
-      d3N[iz,:] = 10.**f(self.marr) * self.dVc[iz] / sqdeg_per_sr / 2.5 # 2.5 for N/dex to N/mag
+      #print('mymags= model obs mags at z, for all masses=',mymags[inozero])
+      #print('log N=',np.log10(mfunction.N[inozero]))
+      #print('to be interp on marr which is=',self.marr)
+      #print('values of log M intrpolated at marr=',f(self.marr))
+      try:
+        d3N[iz,:] = 10.**f(self.marr) * self.dVc[iz] / sqdeg_per_sr / 2.5 # 2.5 for N/dex to N/mag
+      except:
+        if np.max(mymags[inozero])< np.max(self.marr):
+          print('WARNING: ')
+          print('at z=', z)
+          print('mymags= model obs mags at z, for all masses=',np.min(mymags[inozero]), np.max(mymags[inozero]))
+          print('to be interp on observed marr range which is=',np.min(self.marr), np.max(self.marr))
+          print('Please Try to extend the GSMF low-mass range ! '+
+              'It seems that at this redshift, some galaxies in the observable magnitude range are not described by the GSMF.'+
+              ' As it is, masses out of the GSMF are assumed to have 0 galaxies, instead of the closest value of log10_N= ',\
+              np.log10(mfunction.N[inozero][0]), 'at mmodel=', mymags[inozero][0], 'accounting for ',10.**f(mymags[inozero][0]) * self.dVc[iz] / sqdeg_per_sr / 2.5,' galaxies /sqdeg/mag in the counts this magnitude and redshift bin')
+          print('Bypassing this issue....')
+        f = interpolate.interp1d(mymags[inozero], np.log10(mfunction.N[inozero]), bounds_error = False, fill_value = -1000.) # N/Mpc3/dlogm at each appmag(z)
+        d3N[iz,:] = 10.**f(self.marr) * self.dVc[iz] / sqdeg_per_sr / 2.5 # 2.5 for N/dex to N/mag
 
+  
     return d3N # N(z,mobs) / (dz=1) / (dm = 1mag) / 1 sq degree
 
   def counts(self, model, mfunction, myfilter, zrange = None, **kwargs): #zfor = 10 assumed in dndmdz
