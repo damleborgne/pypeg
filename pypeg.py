@@ -7,6 +7,7 @@ from builtins import input
 from builtins import str
 from builtins import range
 
+import functools
 import numpy as np
 import re
 import pypeg.pypeg_io as io 
@@ -153,23 +154,34 @@ Routines :
 
 """
 
+cosmo_dict = None
 
+def define_cosmo(mycosmo = None):
+  """ Defines a default or cusotm comology (must be an astropy.cosmology one). And defines the module global cosmo_dict dictionary"""
 
-print('init cosmo...')
-mycosmo = cosmology.Planck13
+  print('init cosmo...')
 
-#from astropy.cosmology import FlatLambdaCDM
-#mycosmo = FlatLambdaCDM(H0=70., Om0=1.)
+  if mycosmo is None:
+    mycosmo = cosmology.Planck13
 
+  #from astropy.cosmology import FlatLambdaCDM
+  #mycosmo = FlatLambdaCDM(H0=70., Om0=1.)
 
-#mycosmo = cosmology.WMAP7
-zscale0 = np.logspace(0.,1.1,100)-1.
-tscale0 = mycosmo.age(zscale0)*1e3 # Myr #Slow !!! Do only once....
-zscale = np.logspace(1e-10,2.,100)-1.
-tscale = mycosmo.age(zscale)*1e3 # Myr #Slow !!! Do only once....
-ldistscale  = mycosmo.luminosity_distance(zscale).to(u.cm).value
-print('done init cosmo....')
+  global cosmo_dict 
 
+  cosmo_dict= {}
+
+  #mycosmo = cosmology.WMAP7
+  cosmo_dict['zscale0'] = np.logspace(0.,2.,100)-1.
+  cosmo_dict['tscale0'] = mycosmo.age(cosmo_dict['zscale0']).to(u.Myr).value # Myr #Slow !!! Do only once....
+  cosmo_dict['zscale'] = np.logspace(1e-10,2.,100)-1.
+  cosmo_dict['tscale'] = mycosmo.age(cosmo_dict['zscale']).to(u.Myr).value # Myr #Slow !!! Do only once....
+  cosmo_dict['ldistscale']  = mycosmo.luminosity_distance(cosmo_dict['zscale']).to(u.cm).value
+  cosmo_dict['cosmo']  = mycosmo
+  print('done init cosmo....')
+
+# load cosmology on import, needed by other routines
+#define_cosmo()
 
 def memoize(f):
   class MemoizeMutable(object):
@@ -238,7 +250,7 @@ def igm_transmission_madauH(wavelength_obs, z_source):
 
 @memoize
 def igm_transmission(wavelengthin, redshift):
-  from scipy.misc import factorial
+  from scipy.special import factorial
 
   """Intergalactic transmission (Meiksin, 2006)
 
@@ -351,14 +363,21 @@ def igm_transmission(wavelengthin, redshift):
   return igm_transmission
 
 def ldist_z(z):
+  if cosmo_dict is None:
+    define_cosmo()
+
   return 10.**np.interp(np.log10(z), 
-    np.log10(zscale), np.log10(ldistscale)) #cm
+    np.log10(cosmo_dict['zscale']), np.log10(cosmo_dict['ldistscale'])) #cm
 
 def cosmic_z(galaxy_age, zfor):
+  if cosmo_dict is None:
+    define_cosmo()
   # input age in Myr. Returns z, given zfor
-  tfor = np.interp(zfor, zscale, tscale)
+  tfor = np.interp(zfor, cosmo_dict['zscale'], cosmo_dict['tscale'])
+  #print(cosmo_dict['zscale'], cosmo_dict['tscale'])
+  #print(zfor,tfor)
   # time is increasing in the interp: good
-  return np.interp(galaxy_age, np.array(tscale0[::-1]) - tfor, zscale0[::-1],
+  return np.interp(galaxy_age, np.array(cosmo_dict['tscale0'][::-1]) - tfor, cosmo_dict['zscale0'][::-1],
     right = np.nan, left = np.nan)
 
 def cosmic_sfh():
@@ -690,7 +709,10 @@ class Sedevol(object):
       allw.append(sed2.w)
 
 
-    allw = np.unique(np.hstack(np.array(allw)))
+    #print(allw)
+    #allw = np.unique(np.hstack(np.array(allw)))
+    allw = np.unique(np.hstack(allw))
+    #print(allw, allw.shape)
     newsed =  Sedevol(self.time, allw, dirac = False)
 
 
@@ -755,6 +777,8 @@ class Sedevol(object):
     for i in range(len(self.time)):
       self.fevol[i,:] = Spectrum(w = self.w, f = self.fevol[i,:]).smooth(wscale, w0 = w0).f
 
+  # memoize:
+  @functools.lru_cache(maxsize=128)
   def absmags(self, myfilter, zfor = None, calibtype = 'AB'):
     from copy import deepcopy
     #from astropy import unit
@@ -772,11 +796,12 @@ class Sedevol(object):
     return mag, z
 
 
-  def sed_in_ab(self, zfor = None, igm = True):
+
+  def sed_in_ab(self, zfor = None, igm = True, fixed_age = None):
     #from astropy import units as units
     # computes observed magnitudes in a filter as a function of time
-    #from astropy import cosmology
-    #import time
+    # fixed_age in Myr if not None
+    
 
     igm_trans = np.ones_like(self.w)
     sp_ab = np.repeat(Spectrum, len(self.time))
@@ -786,44 +811,58 @@ class Sedevol(object):
 
     c=2.99792458e18 # A/s
 
-    iwok = (self.w>3000) & (self.w < 4000.)
     z = cosmic_z(self.time, zfor)
-    iok = (np.invert(np.isnan(z)))
+    iok = (np.invert(np.isnan(z))) #booleans
     sqdimming = 0.*z
     sqdimming[iok] = np.sqrt(4.*np.pi)*ldist_z(z[iok])
     for itok in range(np.sum(iok)):
       it = np.arange(len(self.time))[iok][itok]
+      if fixed_age is None:
+        it_origin = it
+      else:
+        it_origin = np.abs(self.time - fixed_age).argmin()
+
       if igm:
         igm_trans = igm_transmission(self.w*(1.+z[it]), z[it]) 
-      sp_ab[it] = Spectrum(w = self.w * (1.+z[it]), f = igm_trans * self.fevol[it,:] / (1.+z[it]) )
-      fnu = sp_ab[it].f * (sp_ab[it].w)**2 / c
-      sp_ab[it].f = -2.5 * np.log10(fnu) - 48.60 + 5.*np.log10(sqdimming[it])
-      
-    return sp_ab, z
 
-  def obsmags(self, myfilter, zfor = 10., calibtype = 'AB', igm = True):
+      sp_ab[it] = Spectrum(w = self.w * (1.+z[it]), f = igm_trans * self.fevol[it_origin,:] / (1.+z[it]) )
+      fnu = sp_ab[it].f * (sp_ab[it].w)**2 / c
+      #sp_ab[it].f = -2.5 * np.log10(fnu) - 48.60 + 5.*np.log10(sqdimming[it])
+      sp_ab[it].ab = -2.5 * np.log10(fnu) - 48.60 + 5.*np.log10(sqdimming[it])
+      #print(sp_ab[it].ab)
+      #print(z[iok][itok], z[it])
+      
+    return sp_ab[iok], z[iok]
+  
+  # memoize:
+  @functools.lru_cache(maxsize=128)
+  def obsmags(self, myfilter, zfor = 10., calibtype = 'AB', igm = True, fixed_age = None):
     #from astropy import units as units
     # computes observed magnitudes in a filter as a function of time
     #from astropy import cosmology
     #import time
 
     igm_trans = np.ones_like(self.w)
-
     z = cosmic_z(self.time, zfor)
-    #print self.time, z
     iok = (np.invert(np.isnan(z)))
     sqdimming = 0.*z
     sqdimming[iok] = np.sqrt(4.*np.pi)*ldist_z(z[iok])
     mag = np.zeros(len(self.time))
+    distmod = np.zeros(len(self.time))
     for itok in range(np.sum(iok)):
       it = np.arange(len(self.time))[iok][itok]
-      if igm:
-        igm_trans = igm_transmission(self.w*(1.+z[it]), z[it]) # to be memoized???
-      sp = Spectrum(w = self.w * (1.+z[it]), f = igm_trans * self.fevol[it,:] / (1.+z[it]) )
-      mag[it] = myfilter.mag(sp, calibtype=calibtype) +5.*np.log10(sqdimming[it]) #AB magnitude is the default
+      if fixed_age is None:
+        it_origin = it
+      else:
+        it_origin = np.abs(self.time - fixed_age).argmin()
 
-    mag[(np.isnan(z))] = np.nan
-    return mag, z
+      if igm:
+        igm_trans = igm_transmission(self.w*(1.+z[it]), z[it]) 
+      sp = Spectrum(w = self.w * (1.+z[it]), f = igm_trans * self.fevol[it_origin,:] / (1.+z[it]) )
+      mag[it] = myfilter.mag(sp, calibtype=calibtype) +5.*np.log10(sqdimming[it]) #AB magnitude is the default
+      distmod[it] = 5.*np.log10(sqdimming[it])
+   # mag[(np.isnan(z))] = np.nan
+    return np.flip(mag[iok]), np.flip(z[iok]), np.flip(distmod[iok])
 
   def sed_at_age(self, age):
     if age in self.time:
@@ -874,6 +913,20 @@ class Properties(object):
     self.nSNIa=np.zeros(self.nages)
     self.age_stars_mass=np.zeros(self.nages)
     self.age_stars_Lbol=np.zeros(self.nages) 
+
+
+  def getprop(self, propname, zfor = 10.):
+    print("zfor=",zfor)
+    z = cosmic_z(self.time, zfor)
+    #print self.time, z
+    iok = (np.invert(np.isnan(z)))
+    myprop = np.zeros(len(self.time))
+    for itok in range(np.sum(iok)):
+      it = np.arange(len(self.time))[iok][itok]
+      myprop[it] = eval('self.'+propname)[it]
+
+    return myprop, z
+
 
 #-------------------------------------------------------------------
 # ------------------------------------------------------------------

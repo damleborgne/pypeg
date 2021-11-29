@@ -10,12 +10,13 @@ from builtins import input
 from builtins import str
 from builtins import range
 from builtins import object
+import functools
 
 import numpy as np
 import matplotlib.pyplot as plt
 import pypeg.pypeg as pypeg
 import os
-from astropy.cosmology import FlatLambdaCDM
+from astropy.cosmology import FlatLambdaCDM, LambdaCDM
 
 #pypeg = reload(pypeg)
 
@@ -48,7 +49,7 @@ def get_area(positions, nbins = 100):
       if n1*n2*n3*n4 > 0:
         narea += 1
 
-  return narea * (xedges[1]-xedges[0]) * (yedges[1]-yedges[0  ])
+  return narea * (xedges[1]-xedges[0]) * (yedges[1]-yedges[0])
 
 
 class Photo_sample(object):
@@ -81,7 +82,6 @@ def make_schechter_from_zpegdata(zpegfile, zbins = None,
   # magoffsets is a dictionary: len(magoffsets) = number of Hubble types 
 
   from pyzpeg import pyzpeg
-  from astropy.cosmology import FlatLambdaCDM
 
   zpegrun = pyzpeg.Zpeg_run()
   zpegrun.read_zpegres(zpegfile)
@@ -374,8 +374,7 @@ class Popfunc(object):
       self.logxarr = np.arange(0., 20., 0.01)
     else:
       self.logxarr = logxarr[0]
-    #print self.logxarr
-
+    #
     #self.logxarr = logxarr
     self.N       = np.zeros(len(self.logxarr)) # function N(logx) in # / dex, independant of logx sampling
     self.type   = 'dex_mass' # can be 'mag' or 'dex_mass' or 'dex_sfr' or...
@@ -479,17 +478,18 @@ class Lfunction(Popfunc):
   def marr(self, value):
     self.logxarr = value
 
-  def to_Mfunction(self, log10M_0, ABmag_0):
+  def to_Mfunction(self, log10M_0, ABmag_0, mf = None):
     """ Convert a lum func to a mass function. Assuming a cosmology. Really basic."""
-
-    MF = Mfunction(self.logxarr)
-    MF.N = self.N[::-1] * 2.5 # N/mag to N/dex
+    if mf is None: #the MF obkect does not exists yet
+      mf = Mfunction(self.logxarr)
+    
+    mf.N = self.N[::-1] * 2.5 # N/mag to N/dex
 
     # shift the logxarr array
     AB_to_logM = lambda m: log10M_0 - 0.4*(m-ABmag_0)
-    MF.logxarr = AB_to_logM(self.logxarr)[::-1]
+    mf.logxarr = AB_to_logM(self.logxarr)[::-1]
 
-    return MF
+    return mf
 
 class Mfunction(Popfunc):
 
@@ -508,17 +508,19 @@ class Mfunction(Popfunc):
   def logM(self, value):
     self.logxarr = value
 
-  def to_Lfunction(self, log10M_0, ABmag_0):
+  def to_Lfunction(self, log10M_0, ABmag_0, lf = None):
     """ Convert a mass func to a lum function. Assuming a cosmology. Really basic."""
 
-    LF = Lfunction(self.logxarr)
-    LF.N = self.N[::-1] / 2.5 # N/dex to N/mag
+    if mf is None: #the MF obkect does not exists yet
+      lf = Lfunction(self.logxarr)
+    
+    lf.N = self.N[::-1] / 2.5 # N/dex to N/mag
 
     # shift the logxarr array
     logM_to_AB = lambda log10M: ABmag_0 + 2.5 * (log10M_0 - log10M)
-    LF.logxarr = logM_to_AB(self.logxarr)[::-1]
+    lf.logxarr = logM_to_AB(self.logxarr)[::-1]
 
-    return LF
+    return lf
 
 # class SFRfunction(Popfunc):
 # 
@@ -579,47 +581,73 @@ class Counts(object):
 
     self.dzarr = np.gradient(self.zarr) # to be checked : use diff or gradient ??
 
-    mycos = pypeg.mycosmo
+    if pypeg.cosmo_dict is None:
+      pypeg.define_cosmo()
+    mycos = pypeg.cosmo_dict['cosmo']
     ## comobile volume for a steradian in a dz=1 slice at each zarr
     ez = np.sqrt(mycos.Om0*(1.+self.zarr)**3+mycos.Ok0*(1.+self.zarr)**2+mycos.Ode0) #sqrt(OmegaM*cube(1.0+z)+omegaR*sqr(1.0+z)+olh.omegalambda)
     self.dVc = (c.c / mycos.H0 * (pypeg.ldist_z(self.zarr)*u.cm)**2 / (1.+self.zarr)**2. / ez).to(u.Mpc**3)
 
-  def dndmdz(self, model, mfunction, myfilter, zfor = 10., **kwargs):
+  def dndmdz(self, model, mfunction, myfilter, zfor = 10., extrapolate_MF = False, verbose = 1, **kwargs):
     """
     Returns N/mag/sqdeg in bins of redshift, apparent magnitude (for dz=1 and dmag = 1)
     """
     from scipy import interpolate
+    import time
 
     d3N = np.zeros((len(self.zarr),len(self.marr))) # N(z,mobs) / (dz=1) / (dm = 1mag) / 1 sq degree
 
-    mmag, zmodel = model.seds.obsmags(myfilter, zfor = zfor, **kwargs)
+    #t1 = time.time()
+
+    mmag, zmodel, *_ = model.seds.obsmags(myfilter, zfor = zfor, **kwargs)
     sqdeg_per_sr=(180./np.pi)**2  
+
+    #t2 = time.time() ;  print("t mags:", t2-t1) ; t1 = time.time()
 
     for iz, z in enumerate(self.zarr):
       mymags = -2.5*(mfunction.logM-np.log10(model.norm)) + extrap(np.array([np.log10(z)]), np.log10(zmodel), mmag) # CHECKED ! interpolate in log(z) because m ~ log(d) ~ log(z) at low z
       inozero = (mfunction.N>0.) #N(logM)/Mpc3/dlogM
-      f = interpolate.interp1d(mymags[inozero], np.log10(mfunction.N[inozero]), bounds_error = True, fill_value = -1000.) # N/Mpc3/dlogm at each appmag(z)
-      # N/Mpc3/dlogm * (V/sqeg_per_sr)(Mpc3/sqdeg at z)  / 2.5(mag/dlogm)=> N/mag/sqdeg in bins of z, 
-      #print('mymags= model obs mags at z, for all masses=',mymags[inozero])
-      #print('log N=',np.log10(mfunction.N[inozero]))
-      #print('to be interp on marr which is=',self.marr)
-      #print('values of log M intrpolated at marr=',f(self.marr))
       try:
-        d3N[iz,:] = 10.**f(self.marr) * self.dVc[iz] / sqdeg_per_sr / 2.5 # 2.5 for N/dex to N/mag
-      except:
-        if np.max(mymags[inozero])< np.max(self.marr):
-          print('WARNING: ')
-          print('at z=', z)
-          print('mymags= model obs mags at z, for all masses=',np.min(mymags[inozero]), np.max(mymags[inozero]))
-          print('to be interp on observed marr range which is=',np.min(self.marr), np.max(self.marr))
-          print('Please Try to extend the GSMF low-mass range ! '+
-              'It seems that at this redshift, some galaxies in the observable magnitude range are not described by the GSMF.'+
-              ' As it is, masses out of the GSMF are assumed to have 0 galaxies, instead of the closest value of log10_N= ',\
-              np.log10(mfunction.N[inozero][0]), 'at mmodel=', mymags[inozero][0], 'accounting for ',10.**f(mymags[inozero][0]) * self.dVc[iz] / sqdeg_per_sr / 2.5,' galaxies /sqdeg/mag in the counts this magnitude and redshift bin')
-          print('Bypassing this issue....')
-        f = interpolate.interp1d(mymags[inozero], np.log10(mfunction.N[inozero]), bounds_error = False, fill_value = -1000.) # N/Mpc3/dlogm at each appmag(z)
-        d3N[iz,:] = 10.**f(self.marr) * self.dVc[iz] / sqdeg_per_sr / 2.5 # 2.5 for N/dex to N/mag
+        f = interpolate.interp1d(mymags[inozero], np.log10(mfunction.N[inozero]), bounds_error = True, fill_value = -1000.) # N/Mpc3/dlogm at each appmag(z)
+        log10Ninterpolated = f(self.marr)
 
+      except:
+        # probably a problem with magnitude interpolation bounds
+        if np.max(mymags[inozero]) < np.max(self.marr): # it only matters at the faint end for reasonable Schechter-like functions.
+
+          if extrapolate_MF:
+            if verbose > 1:
+              print('Bypassing the issue of not having defined MF for faintest observable galaxies by extrapolating MF (linear in log N vs log M) !')
+            log10Ninterpolated = extrap(self.marr, mymags[inozero], np.log10(mfunction.N[inozero]))
+
+          else:
+            if verbose > 1:
+              print('WARNING: dndmdz at z=',z)
+              print('mymags= model obs mags at z, for all masses=',np.min(mymags[inozero]), np.max(mymags[inozero]))
+              print('to be interp on observed marr range which is=',np.min(self.marr), np.max(self.marr))
+              #lost_number = (10.**f(mymags[inozero][0]) * self.dVc[iz] / sqdeg_per_sr / 2.5).value
+              #print('Please Try to extend the GSMF low-mass range ! '+
+              #    'It seems that at this redshift, some galaxies in the observable magnitude range are not described by the GSMF.'+
+              #    ' As it is, masses out of the GSMF are assumed to have 0 galaxies, instead of the closest value of log10_N= ',\
+              #    np.log10(mfunction.N[inozero][0]), 'at mmodel=', mymags[inozero][0], 'accounting for ',lost_number,' galaxies /sqdeg/mag in the counts this magnitude and redshift bin')
+              #print('This is a faction of 10^(',np.log10(lost_number/computed_number_if_bypass),') of the currently computed counts at this magnitude')
+            if verbose :
+              print('Warning in pypeg.populations.dndmdz, lack of MF definition. Assuming 0 galaxies outside of definition range !')
+            fbypass = interpolate.interp1d(mymags[inozero], np.log10(mfunction.N[inozero]), bounds_error = False, fill_value = -1000.) # N/Mpc3/dlogm at each appmag(z)
+            log10Ninterpolated = fbypass(self.marr)             
+
+        else: # The issue is only at the bright end, where the contribution of galaxies is negligible anyway for any reasonable Schechter function...
+          #The way to deal with missing bound does not matter. Lets interpolate ?
+          if True:
+            log10Ninterpolated = extrap(self.marr, mymags[inozero], np.log10(mfunction.N[inozero]))
+          else:
+            fbypass = interpolate.interp1d(mymags[inozero], np.log10(mfunction.N[inozero]), bounds_error = False, fill_value = -1000.) # N/Mpc3/dlogm at each appmag(z)
+            log10Ninterpolated = fbypass(self.marr)
+
+
+      #t2 = time.time() ;  print("t loop:", t2-t1) ; t1 = time.time()
+
+      d3N[iz,:] = 10.**log10Ninterpolated * self.dVc[iz] / sqdeg_per_sr / 2.5 # 2.5 for N/dex to N/mag
   
     return d3N # N(z,mobs) / (dz=1) / (dm = 1mag) / 1 sq degree
 
@@ -648,11 +676,14 @@ class Counts(object):
     Returns N/mag/mag/sq deg
     """
     from scipy import interpolate
+    #import time
 
     d4N = np.zeros((len(self.zarr),len(self.marr), len(self.carr))) # N(z,mobs,color) / (dz=1) / (dm = 1mag) / (dcolor=1mag) / 1 sq degree
 
-    mmag1, zmodel = model.seds.obsmags(myfilter1, zfor = zfor, **kwargs)
-    mmag2, zmodel = model.seds.obsmags(myfilter2, zfor = zfor, **kwargs)
+    mmag1, zmodel, *_ = model.seds.obsmags(myfilter1, zfor = zfor, **kwargs)
+    mmag2, zmodel, *_ = model.seds.obsmags(myfilter2, zfor = zfor, **kwargs)
+
+    #t2 = time.time() ;  print("t mags:", t2-t1) ; t1 = time.time()
 
     sr_in_sqdeg=(180./np.pi)**2  
 
@@ -667,6 +698,7 @@ class Counts(object):
       f = interpolate.interp1d(mymag1, mydn, bounds_error = False, fill_value = 0.)
       d4N[iz,:,ic] += f(self.marr)*self.dVc[iz]/sr_in_sqdeg * 0.4 / self.dcarr[ic] # 0.4 for N/dex to N/mag
 
+    #t2 = time.time() ;  print("t loop:", t2-t1) ; t1 = time.time()
     return d4N
 
   def colormagcounts_incells(self, model, mfunction, myfilter1, myfilter2, **kwargs):
@@ -778,27 +810,27 @@ class Counts(object):
     plt.yscale('log')
 
 
-def LF_to_MF(lf, model, filter0, z = 0., stellar = False, zfor = 10.):
+def LF_to_MF(lf, model, filter0, z = 0., stellar = False, zfor = 10., mf = None):
 
   mabs, zm = model.seds.absmags(filter0, zfor = zfor) #AB
   inozero = (zm>0.)
   mabsz0 = extrap(np.log10(np.array([1+z])),np.log10(1.+zm[inozero]), mabs[inozero])
   mstarsz0 = extrap(np.log10(np.array([1+z])),np.log10(1.+zm[inozero]), model.props.mstars[inozero])
   if not stellar:
-    return lf.to_Mfunction(np.log10(model.norm), mabsz0) # 1Msun_total corresponds to mabsz0 in the model
+    return lf.to_Mfunction(np.log10(model.norm), mabsz0, mf = mf) # 1Msun_total corresponds to mabsz0 in the model
   else:
-    return lf.to_Mfunction(np.log10(mstarsz0), mabsz0) # 1Msun_total corresponds to mabsz0 in the model
+    return lf.to_Mfunction(np.log10(mstarsz0), mabsz0, mf = mf) # 1Msun_total corresponds to mabsz0 in the model
 
-def MF_to_LF(mf, model, filter0, z = 0., stellar = False, zfor = 10.):
+def MF_to_LF(mf, model, filter0, z = 0., stellar = False, zfor = 10., lf = None):
 
   mabs, zm = model.seds.absmags(filter0, zfor = zfor) #AB
   inozero = (zm>0.)
   mabsz0 = extrap(np.log10(np.array([1+z])),np.log10(1.+zm[inozero]), mabs[inozero])
   mstarsz0 = extrap(np.log10(np.array([1+z])),np.log10(1.+zm[inozero]), model.props.mstars[inozero])
   if not stellar:
-    return mf.to_Lfunction(np.log10(model.norm), mabsz0) # 1Msun_total corresponds to mabsz0 in the model
+    return mf.to_Lfunction(np.log10(model.norm), mabsz0, lf = lf) # 1Msun_total corresponds to mabsz0 in the model
   else:
-    return mf.to_Lfunction(np.log10(mstarsz0), mabsz0) # 1Msun_total corresponds to mabsz0 in the model
+    return mf.to_Lfunction(np.log10(mstarsz0), mabsz0, lf = lf) # 1Msun_total corresponds to mabsz0 in the model
 
 def TMF_to_SMF(TMF, model, z0, zfor = 10.):
   from copy import deepcopy
@@ -875,19 +907,22 @@ def plot_SFRD(models, TMFs, zfors, scenarios, withdata = True):
     f = interpolate.interp1d(np.log10(1.+z), sfrd, bounds_error = False, fill_value = 0.)
     sfrdtot += f(np.log10(1.+zarr))
 
-  color=iter(plt.cm.rainbow(np.linspace(1,0,len(models)+1)))
-  c = next(color)
-  plt.plot(zarr, np.log10(sfrdtot), label = 'total', c=c)
+  if len(models) > 0:
+    color=iter(plt.cm.rainbow(np.linspace(1,0,len(models)+1)))
+    c = next(color)
+    plt.plot(zarr, np.log10(sfrdtot), label = 'total', c=c)
+    plt.xlabel('z')
+    plt.ylabel('log10(SFRD (Msun/yr/Mpc$^3$)')
+    plt.ylim([-3.,0.])  
+    plt.xlim([0.,8.])  
+    #plt.legend(loc=1,prop={'size':4})
 
   for i in range(len(models)):
     c = next(color)
     plt.plot(zs[i], np.log10(sfrds[i]), label = 'model {0} : {1}'.format(i, scenarios[i]), c=c)
 
-  plt.xlabel('z')
-  plt.ylabel('log10(SFRD (Msun/yr/Mpc$^3$)')
-  plt.ylim([-3.,0.])  
-  plt.xlim([0.,8.])  
-  #plt.legend(loc=1,prop={'size':4})
+
+  return zdata, logsfrddata, logsfrddata_err, zs, sfrds
 
 
 def rhostar(model, mfunction, zfor = 10.):
