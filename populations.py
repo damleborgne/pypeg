@@ -511,7 +511,7 @@ class Mfunction(Popfunc):
   def to_Lfunction(self, log10M_0, ABmag_0, lf = None):
     """ Convert a mass func to a lum function. Assuming a cosmology. Really basic."""
 
-    if mf is None: #the MF obkect does not exists yet
+    if lf is None: #the MF obkect does not exists yet
       lf = Lfunction(self.logxarr)
     
     lf.N = self.N[::-1] / 2.5 # N/dex to N/mag
