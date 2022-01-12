@@ -14,7 +14,7 @@ import functools
 
 import numpy as np
 import matplotlib.pyplot as plt
-import pypeg.pypeg as pypeg
+import pypeg.pypegm as pypeg
 import os
 from astropy.cosmology import FlatLambdaCDM, LambdaCDM
 
