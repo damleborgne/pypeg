@@ -3,7 +3,7 @@ from __future__ import absolute_import
 from builtins import input
 import numpy as np
 import matplotlib.pyplot as plt
-import pypeg as pp
+import pypegm as pp
 import populations as pop
 import astropy as ap
 import os

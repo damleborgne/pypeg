@@ -1006,7 +1006,7 @@ class Model(object):
       # loop over timesteps
       for it in np.arange(nt):
         line=f.readline()
-        arrline=[np.float(i) for i in line.rstrip().split()]
+        arrline=[float(i) for i in line.rstrip().split()]
         self.props.time[it]          = arrline[0]
         self.props.mgal[it]          = arrline[1]
         self.props.mstars[it]        = arrline[2]
@@ -1019,7 +1019,7 @@ class Model(object):
         self.props.Zstars_lumbol[it] = arrline[9]
 
         line=f.readline()
-        arrline=[np.float(i) for i in line.rstrip().split()]
+        arrline=[float(i) for i in line.rstrip().split()]
         self.props.Lbol[it]          = arrline[0]
         self.props.tauv[it]          = arrline[1]
         self.props.Ldust_Lbol[it]    = arrline[2]
@@ -1277,11 +1277,11 @@ class Filter(object):
         tab = line.strip().split()
 
         if (len(tab)==1) and ((tab[0] == '0') or (tab[0] == '1')) and (self.transtype==-1):
-          self.transtype = np.int(tab[0])
+          self.transtype = int(tab[0])
 
         if (len(tab) > 1) and (not tab[0].startswith('#')):
-          self.trans.w[i] = np.float(tab[0])
-          self.trans.f[i] = np.float(tab[1])
+          self.trans.w[i] = float(tab[0])
+          self.trans.f[i] = float(tab[1])
           i = i+1
 
     # clip and calibrate

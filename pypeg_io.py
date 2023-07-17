@@ -31,7 +31,7 @@ def myread(file, n, dtype=None):
 	iarr=0
 	while (iarr < n):
 		line=file.readline()
-		arrline=[np.float(i) for i in line.rstrip().split()]
+		arrline=[float(i) for i in line.rstrip().split()]
 		array[iarr:min(iarr+len(arrline),n)] = arrline
 		iarr+=len(arrline)		
 	array=array.astype(dtype) # convert back to input type
