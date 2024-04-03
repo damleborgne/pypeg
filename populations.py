@@ -811,6 +811,15 @@ class Counts(object):
 
 
 def LF_to_MF(lf, model, filter0, z = 0., stellar = False, zfor = 10., mf = None):
+  """ Converts the luminoisty function to a mass function.
+  lf : Lfunction object (i.e. N(mag) / Mpc3 at a given redshift)
+  model : Model object (evolving model SEDs)
+  filter0 : Filter object (filter0 for the LF)
+  z : redshift of the observed LF (lf)
+  stellar : if True, the mass function is in stellar mass, not total mass
+  zfor : redshift of formation for the model
+  mf
+  """
 
   mabs, zm = model.seds.absmags(filter0, zfor = zfor) #AB
   inozero = (zm>0.)

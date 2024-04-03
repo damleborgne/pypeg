@@ -1113,8 +1113,8 @@ class Model(object):
     #plt.ion()
     #fig=plt.figure()
     #ax=fig.add_subplot(1,1,1)
-    plt.xscale("log",nonposx='clip')
-    plt.yscale("log",nonposy='clip')
+    plt.xscale("log")#,nonposx='clip')
+    plt.yscale("log")#,nonposy='clip')
     plt.xlim([700.,20000.])
 
     for i in ages:
