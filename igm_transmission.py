@@ -1,6 +1,6 @@
-from __future__ import division
-from builtins import input
-from builtins import range
+#from __future__ import division
+#from builtins import input
+#from builtins import range
 from past.utils import old_div
 import numpy as np
 from matplotlib import pyplot as plt

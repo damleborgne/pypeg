@@ -1,6 +1,6 @@
-from __future__ import print_function
-from __future__ import absolute_import
-from builtins import input
+#from __future__ import print_function
+#from __future__ import absolute_import
+#from builtins import input
 import numpy as np
 import matplotlib.pyplot as plt
 import pypegm as pp
@@ -9,6 +9,15 @@ import astropy as ap
 import os
 from astropy import units as units
 import scipy
+
+def spec_flambda_to_ab(w, flambda):
+    # flambda is in erg/s/cm^2/A
+    # w is in A
+    # convert to erg/s/cm^2/Hz
+    c = 2.99792458e18 # A/s
+    fnu = flambda * w**2 / c # erg/s/cm^2/Hz
+    fab = -2.5*np.log10(fnu) - 48.6
+    return fab
 
 
 def example():
@@ -56,10 +65,10 @@ def example():
   plt.ylabel('magnitude')
 
   # plot color(z)
-  mag_u, z = model.seds.obsmags(pp.Filter(filename = 'u_prime.fil'), zfor = 10, calibtype='AB')
-  mag_i, z = model.seds.obsmags(pp.Filter(filename = 'i_prime.fil'), zfor = 10, calibtype='AB')
-  mag_V, z = model.seds.obsmags(pp.Filter(filename = 'V_B90.fil'), zfor = 10, calibtype='AB')
-  mag_Z, z = model.seds.obsmags(pp.Filter(filename = 'z_Mosaic.fil'), zfor = 10, calibtype='AB')
+  mag_u, z, dm = model.seds.obsmags(pp.Filter(filename = 'u_prime.fil'), zfor = 10, calibtype='AB')
+  mag_i, z, dm = model.seds.obsmags(pp.Filter(filename = 'i_prime.fil'), zfor = 10, calibtype='AB')
+  mag_V, z, dm = model.seds.obsmags(pp.Filter(filename = 'V_B90.fil'), zfor = 10, calibtype='AB')
+  mag_Z, z, dm = model.seds.obsmags(pp.Filter(filename = 'z_Mosaic.fil'), zfor = 10, calibtype='AB')
 
 
   plt.subplot(3,3,4)
@@ -86,8 +95,69 @@ def example():
   plt.yscale('log')
   plt.ylim(1e-6,1)
 
+  plt.savefig('example.pdf')
 
+
+  #------------------------------------
+  # plot templates at 13 Gyr in AB mag
+  plt.figure(figsize=(12,8))
+  plt.subplot(1,1,1)
+
+  prefix_templates = os.environ['ZPEG_ROOT']+'/data/templates/'
+  prefix_filters = os.environ['ZPEG_ROOT']+'/data/filters/'
+  filters = ['1500.fil', '2500.fil', 'u_prime.fil', 'g_prime.fil', 'r_prime.fil', 'i_prime.fil', 'z_prime.fil', 'J.fil', 'H.fil', 'K.fil']
+
+  # choose a color for each template
+  colors = {'Sa':'b', 'Sb':'g', 'Sbc':'r', 'Sc':'c', 'Sd':'m'}
+  for ht in ['Sa', 'Sb', 'Sbc', 'Sc', 'Sd']:
+    fn = prefix_templates + f'Salp_200ages/{ht}.dat'
+    model = pp.Model()
+    model.read_from_p2file(fn, sigma = 10.)
+    model.upscale(1e11)
+    time =  model.props.time
+    mstars = model.props.mstars
+    iage = np.abs(time - 13000.).argmin()
+
+    # spec = model.seds.sed_at_age(13000.)
+    spec = model.seds.fevol[iage,:] # erg/s/A
+    spec *= 1e10/mstars[iage]
+    # dimming with ldist**2
+    z = 0.1
+    sqdimming = np.sqrt(4.*np.pi)*pp.ldist_z(z) # in cm
+    spec /= sqdimming**2
+
+    w = model.seds.w
+    ab = spec_flambda_to_ab(w, spec)
+    plt.plot(w, ab, color = colors[ht], label = ht)
+
+    # plot filters
+    for f in filters:
+      myfilter = pp.Filter(filename = prefix_filters + f)
+      myfilter.calibrate()
+      mag = myfilter.mag(pp.Spectrum(w=w, f=spec), calibtype='AB')
+      plt.plot(myfilter.waveeff, mag, 'o', color = colors[ht])
+      # draw the same but with an empty black circle to make it more visible
+      plt.plot(myfilter.waveeff, mag, 'o', color = 'k', fillstyle='none')
+      
+
+  plt.xscale('log')
+  plt.gca().invert_yaxis()
+  plt.xlim(800, 50000)
+  plt.xlabel('Wavelength (A)')
+  plt.ylabel('AB mag')
+  plt.title(f'Templates at 13 Gyr for 1e10 Msun in stars at z={z}')
+  # make a grid with interval = 1 on y axis
+  plt.gca().yaxis.set_major_locator(plt.MultipleLocator(1))
+  plt.grid()
+  
+  plt.legend(loc=0, prop={'size':8})
+  plt.savefig('example2.pdf')
+
+
+
+  
   a = input()
+
 
 if __name__ == '__main__':
   example()

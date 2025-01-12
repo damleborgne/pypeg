@@ -1,11 +1,11 @@
-from __future__ import division
-from __future__ import print_function
-from __future__ import absolute_import
-from future import standard_library
-standard_library.install_aliases()
-from builtins import input
-from builtins import str
-from builtins import range
+#from __future__ import division
+#from __future__ import print_function
+#from __future__ import absolute_import
+#from future import standard_library
+#standard_library.install_aliases()
+#from builtins import input
+#from builtins import str
+#from builtins import range
 
 import functools
 import numpy as np
@@ -86,9 +86,9 @@ Routines :
               even with different w sampling. Times must be identical, though.
               Uses self.sigma to smooth Dirac lines.
   - smooth(wscale, w0)  : smooth evolving spectrum (uses Spectrum.smooth)
-  - absmag(myfilter, zfor=10., calibtype='AB')
+  - absmags(myfilter, zfor=10., calibtype='AB')
   - sed_in_ab(sfor=10, igm = True)
-  - obsmag(myfilter, zfor = 10, calibtype = 'AB', igm = True)
+  - obsmags(myfilter, zfor = 10, calibtype = 'AB', igm = True)
   - sed_at_age(age) : interpolate, returns Spectrum with s.w, s.f being the spectrum
 
 - Class Properties
@@ -117,6 +117,7 @@ Routines :
   - self.scen = Scenario()
     self.props = Properties()
     self.norm = 1.
+    self.name = '' # nickname for the model
   - upscale(norm) : recompute parameters with normalisation !=1.
   - read_from_p2file(file, sigma=None): also do normalisation accroding to self.norm
   - read_from_fitsfile(file, sigma=None): idem
@@ -128,7 +129,7 @@ Routines :
     self.nw       = 10000
     self.transorig = Spectrum(nw = self.nw) # photon or energy transmission
     if transtype is None:
-      self.transtype = -1 # O = energy ; 1 = photon
+      self.transtype = -1 # 0 = energy ; 1 = photon
     else:
       self.transtype = transtype # force transmission type
     self.trans = Spectrum(nw = self.nw) # energy transmission
@@ -732,7 +733,8 @@ class Sedevol(object):
 
     else: # first operand spectra is not lines : store it, interpolated on allw
       for it in range(len(self.time)):
-        finterp = interpolate.interp1d(self.w,self.fevol[it,:])
+        finterp = interpolate.interp1d(self.w,self.fevol[it,:], fill_value = 0., bounds_error=False)
+        
         newsed.fevol[it,:] += finterp(allw)
 
 
@@ -766,7 +768,7 @@ class Sedevol(object):
 
     else:
       for it in range(len(sed2.time)):
-        finterp = interpolate.interp1d(sed2.w, sed2.fevol[it,:])
+        finterp = interpolate.interp1d(sed2.w, sed2.fevol[it,:], fill_value=0., bounds_error=False)
         newsed.fevol[it,:] += finterp(allw)
 
 
@@ -945,6 +947,8 @@ class Model(object):
     self.scen = Scenario()
     self.props = Properties()
     self.norm = 1.
+    self.name = '' # nickname for the model
+
 
   def upscale(self, norm, oldnorm = None):
     if oldnorm is None: # default case : we rescale respectively to previous norm.
@@ -1201,13 +1205,13 @@ class Filter(object):
       try:
        #      finterp = interpolate.interp1d(spectrum.w,spectrum.f)
        # if tofnu is False:
-       #        fluxtot = integrate.trapz(weight * finterp(self.trans.w) * self.trans.f, self.trans.w)
-        fluxtot = integrate.trapz(weight * fint * self.trans.f, self.trans.w) # check tofnu keyword ? is it different when we integrate over fnu ?
+       #        fluxtot = np.trapz(weight * finterp(self.trans.w) * self.trans.f, self.trans.w)
+        fluxtot = np.trapz(weight * fint * self.trans.f, self.trans.w) # check tofnu keyword ? is it different when we integrate over fnu ?
         #else:
         #  c=2.99792458e18 # A/s
         #  fnu = self.trans.f * self.trans.w ** 2 / c
-        ## fluxtot = integrate.trapz(weight * finterp(self.trans.w) * fnu, self.trans.w)
-        #  fluxtot = integrate.trapz(weight * fint * fnu, self.trans.w)
+        ## fluxtot = np.trapz(weight * finterp(self.trans.w) * fnu, self.trans.w)
+        #  fluxtot = np.trapz(weight * fint * fnu, self.trans.w)
       except ValueError:
         print("Error in integrating spectrum on filter transmission")
         raise
@@ -1222,7 +1226,7 @@ class Filter(object):
       f2[ioutcommon] = 0.
       #fint=f1*f2
       try:
-        fluxtot = integrate.trapz(f1*f2, allw) # check tofnu keyword ? is it different when we integrate over fnu ?
+        fluxtot = np.trapz(f1*f2, allw) # check tofnu keyword ? is it different when we integrate over fnu ?
       except:
         print("Error in integrating spectrum on filter transmission")
         raise
@@ -1234,12 +1238,12 @@ class Filter(object):
         
     import os
 
-    self.area = integrate.trapz(self.trans.f, self.trans.w) # Angstrom
-    self.wavemean = integrate.trapz(self.trans.w * self.trans.f, self.trans.w) / self.area
+    self.area = np.trapz(self.trans.f, self.trans.w) # Angstrom
+    self.wavemean = np.trapz(self.trans.w * self.trans.f, self.trans.w) / self.area
 
     c=2.99792458e18 # A/s
     transfnu = self.trans.f / self.trans.w ** 2 * c # Hz/A
-    self.areanu = integrate.trapz(transfnu, self.trans.w) # Hz
+    self.areanu = np.trapz(transfnu, self.trans.w) # Hz
 
     vega = Spectrum()
     vega.fromfile(os.getenv('ZPEG_ROOT')+'/data/VegaLCB_IR.dat', myskip = 1)

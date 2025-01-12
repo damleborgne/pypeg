@@ -2,14 +2,14 @@
 
 # module population from pypeg : mass functions etc.
 
-from __future__ import division
-from __future__ import print_function
-from __future__ import absolute_import
-from builtins import next
-from builtins import input
-from builtins import str
-from builtins import range
-from builtins import object
+#from __future__ import division
+#from __future__ import print_function
+#from __future__ import absolute_import
+#from builtins import next
+#from builtins import input
+#from builtins import str
+#from builtins import range
+#from builtins import object
 import functools
 
 import numpy as np
@@ -412,7 +412,7 @@ class Popfunc(object):
       (10.**(-0.4*(self.logxarr-logxknee)))**(alpha+1) * \
       np.exp(-10.**(-0.4*(self.logxarr-logxknee))) 
 
-  def integrate(self, logxmin = None, logxmax = None, weights = None, precise = False, integrator = 'trapz'):
+  def integrate(self, logxmin = None, logxmax = None, weights = None, precise = False, integrator = 'trapezoid'):
     """ Returns the integral xtot = of x*N dx between logx=xmin and logx=logxmax"""
     import scipy.integrate
 
@@ -426,6 +426,15 @@ class Popfunc(object):
 
     if not(precise):
       iok = (self.logxarr >= logxmin-1e-10) & (self.logxarr <= logxmax+1e-10)
+      #print('iok=',iok)
+      #print('weights=',weights[iok])
+      #print(self.N)
+      #try:
+      #  self.N = self.N.numpy()
+      #except:
+      #  pass
+      #print('N=',self.N[iok])
+      #print('logxarr=',self.logxarr[iok])
       res = myintegrator(weights[iok]*self.N[iok], self.logxarr[iok])
     else:
       logxarr = np.sort(np.unique(np.hstack((self.logxarr,[logxmin, logxmax]))))
